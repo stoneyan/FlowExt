@@ -2,7 +2,7 @@
 #include <stdlib.h>
 
 int g_tab_spaces = 4;
-bool g_log_lex = true;
+bool g_log_lex = false;
 const std::string LEXER_PARAM_EMPTY = "_P1P1P_";
 const std::string LEXER_PARAM_COMMA = "_P1P1P_COMMA";
 
@@ -109,13 +109,17 @@ void CLexer::init()
     m_include_path.clear();
 
     m_include_path.push_back("/usr/include");
+#ifdef __linux__
+	m_include_path.push_back("/usr/include/x86_64-linux-gnu");
+    m_include_path.push_back("/usr/lib/gcc/x86_64-linux-gnu/4.6/include");
+    m_include_path.push_back("/usr/include/c++/4.6");
+    m_include_path.push_back("/usr/include/c++/4.6/x86_64-linux-gnu");
+#else
+    m_include_path.push_back("/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include/c++/v1/");
     m_include_path.push_back("/usr/include/c++/4.2.1");
     m_include_path.push_back("/usr/include/c++/4.2.1/tr1");
-    //m_include_path.push_back("/usr/include/x86_64-linux-gnu");
-    //m_include_path.push_back("/usr/lib/gcc/x86_64-linux-gnu/4.6/include");
-    //m_include_path.push_back("/usr/include/c++/4.6");
-    //m_include_path.push_back("/usr/include/c++/4.6/x86_64-linux-gnu");
-
+    m_include_path.push_back("/usr/include/machine");
+#endif
     std::string name;
     std::vector<std::string> params;
     std::vector<std::string> keywords;
@@ -126,6 +130,16 @@ void CLexer::init()
     PREDEFINE_2("__FUNCTION__", "");
 
     PREDEFINE("UNIX");
+    PREDEFINE_2("__unix", "1");
+    PREDEFINE_2("__unix__", "1");
+
+#ifdef __linux__
+    PREDEFINE_2("__gnu_linux__", "1");
+    PREDEFINE_2("__linux", "1");
+    PREDEFINE_2("__linux__", "1");
+#else // macos
+    PREDEFINE("__clang__");
+#endif
     PREDEFINE("_GNU_SOURCE");
     PREDEFINE_2("NULL", "__null");
 
@@ -343,11 +357,6 @@ void CLexer::init()
     PREDEFINE_2("__SSE2__", "1");
     PREDEFINE_2("__SSE_MATH__", "1");
     PREDEFINE_2("__SSE2_MATH__", "1");
-    PREDEFINE_2("__gnu_linux__", "1");
-    PREDEFINE_2("__linux", "1");
-    PREDEFINE_2("__linux__", "1");
-    PREDEFINE_2("__unix", "1");
-    PREDEFINE_2("__unix__", "1");
     PREDEFINE_2("__ELF__", "1");
     PREDEFINE_2("__DECIMAL_BID_FORMAT__", "1");
 
@@ -1325,12 +1334,12 @@ void CLexer::transformDirectiveListToTree2(std::vector<DirectiveTreeNode*>& l)
         {
             priority++;
             if (priority > 13)
-                throw("Cannot resolve any deeper");
+                throw(std::string("Cannot resolve any deeper"));
         }
     }
 
     if (l[0]->bOperator)
-        throw("only have one operator in this directive");
+        throw(std::string("only have one operator in this directive"));
 }
 
 // return error string,
@@ -1363,7 +1372,7 @@ std::string CLexer::transformDirectiveListToTree(const std::vector<std::string>&
             continue;
         }
 
-        if (s == "defined")
+        if (s == "defined" || s == "__has_feature")
         {
             if (i + 1 >= keywords.size())
                 return "Insufficient parameters after defined";
@@ -1390,12 +1399,21 @@ std::string CLexer::transformDirectiveListToTree(const std::vector<std::string>&
                 keywords.erase(keywords.begin() + i + 1);
                 continue;
             }
-            if (!isIdentifier(s))
+            std::string ret_s;
+            if (s == "defined")
             {
-                err_s = s + " needs to be an identifier";
-                return err_s;
+				if (!isIdentifier(s))
+				{
+					err_s = s + " needs to be an identifier";
+					return err_s;
+				}
+	            ret_s = (isDefined(s) ? "1" : "0");
             }
-            keywords[i] = (isDefined(s) ? "1" : "0");
+            else
+            {
+            	ret_s = "0";
+            }
+            keywords[i] = ret_s;
             keywords.erase(keywords.begin() + i + 1);
             continue;
         }
@@ -2025,7 +2043,7 @@ std::string CLexer::read_word(bool bFromExternal)
             }
             last_row = m_file_list.back().row;
             s += std::string(":") + ltoa(last_row);
-            //TRACE("#Change file to %s\n", s.c_str());
+            TRACE("#Change file to %s\n", s.c_str());
             return s;
         }
         SourceFile& sf = m_file_list.back();
@@ -2369,7 +2387,7 @@ std::string CLexer::read_word(bool bFromExternal)
                 }
             }
             m_file_list.push_back(sf2);
-            //TRACE("#Entering block %s:%d~%d\n", sf2.file_name.c_str(), sf2.row, sf.row);
+            TRACE("#Entering block %s:%d~%d\n", sf2.file_name.c_str(), sf2.row, sf.row);
             continue;
         }
         else if (s == "undef")
@@ -2416,7 +2434,16 @@ std::string CLexer::read_word(bool bFromExternal)
                 fatal_error("unknown pragma directive <%s> in %s:%d", s.c_str(), sf.file_name.c_str(), sf.row);
         }
         else
-            fatal_error("unknown directive <%s> in %s:%d", s.c_str(), sf.file_name.c_str(), sf.row);
+        {
+        	MY_ASSERT(isNumber(s));
+            while (true)
+            {
+                s = read_word2(false);
+                if (s.empty())
+                    break;
+            }
+            //fatal_error("unknown directive <%s> in %s:%d", s.c_str(), sf.file_name.c_str(), sf.row);
+        }
     }
 
     return "";

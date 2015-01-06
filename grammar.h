@@ -4,108 +4,108 @@
 #include "lex.h"
 #include <set>
 
-//"\
-    const               : 'const' | '__const'; \\\n\
-    operator            : '+' | '-' | '*' | '/' | '=' | '<' | '>' | '+=' | '-=' | '*=' | '/=' | '<<' | '>>' | '<<=' | '>>=' | '==' | '!=' | '<=' | '>=' | '++' | '--' | '%' | '&' | '^' \\\n\
-                        | '!' | '|' | '~' | '&=' | '^=' | '|=' | '&&' | '||' | '%=' | '(' ')' | '[' ']' | '->' | 'new' | 'new' '[' ']' | 'delete' | 'delete' '[' ']' | ',' | extended_type;  \\\n\
+//const char* g_grammar_str = "\
+	const				: 'const' | '__const'; \\\n\
+	operator			: '+' | '-' | '*' | '/' | '=' | '<' | '>' | '+=' | '-=' | '*=' | '/=' | '<<' | '>>' | '<<=' | '>>=' | '==' | '!=' | '<=' | '>=' | '++' | '--' | '%' | '&' | '^' \\\n\
+						| '!' | '|' | '~' | '&=' | '^=' | '|=' | '&&' | '||' | '%=' | '(' ')' | '[' ']' | '->' | 'new' | 'new' '[' ']' | 'delete' | 'delete' '[' ']' | ',' | extended_type;  \\\n\
     scope               : ?['::'] *[ ?['template'] token ?[ < *[(extended_type_var|expr), ','] > ] '::'] ; \\\n\
     hard_scope          : ?['::'] +[ ?['template'] token ?[ < *[(extended_type_var|expr), ','] > ] '::'] ; \\\n\
-    token_with_namespace: scope token ?[ < *[(extended_type_var|expr), ','] > ]; \\\n\
+	token_with_namespace: scope token ?[ < *[(extended_type_var|expr), ','] > ]; \\\n\
     twn_nocheck         : scope token ?[ < *[(extended_type_var|expr), ','] > ]; \\\n\
-    user_def_type       : scope ?['template'] token ?[ < *[(extended_type_var|expr), ','] > ]; \\\n\
+	user_def_type		: scope ?['template'] token ?[ < *[(extended_type_var|expr), ','] > ]; \\\n\
   user_def_type_no_check: scope ?['template'] token ?[ < *[(extended_type_var|expr), ','] > ]; \\\n\
-    basic_type          : 'void' | 'va_list' | '__builtin_va_list' | +[('signed' | 'unsigned' | 'char' | 'short' | 'int' | 'long' | 'float' | 'double' | '__int128' | 'bool' | 'wchar_t')]; \\\n\
-    class_struct_union  : 'union' | 'struct' | 'class' | 'enum' ; \\\n\
-    type                : *[data_type_modifier] ( basic_type | class_struct_union user_def_type_no_check | ?['typename' ^N] user_def_type | '__typeof' '(' twn_nocheck ')' ) *[data_type_modifier] ?[ *[?[const] '*'] ?[const] ?['&'] hard_scope '*'] ;\\\n\
-    extended_type       : type *[?[const] '*'] *[data_type_modifier] ?['&']; \\\n\
-    extended_type_var   : extended_type *['[' ?[expr] ']']; \\\n\
+	basic_type			: 'void' | 'va_list' | '__builtin_va_list' | +[('signed' | 'unsigned' | 'char' | 'short' | 'int' | 'long' | 'float' | 'double' | '__int128' | 'bool' | 'wchar_t')]; \\\n\
+	class_struct_union  : 'union' | 'struct' | 'class' | 'enum' ; \\\n\
+	type				: *[data_type_modifier] ( basic_type | class_struct_union user_def_type_no_check | ?['typename' ^N] user_def_type | '__typeof' '(' twn_nocheck ')' ) *[data_type_modifier] ?[ *[?[const] '*'] ?[const] ?['&'] hard_scope '*'] ;\\\n\
+	extended_type		: type *[?[const] '*'] *[data_type_modifier] ?['&']; \\\n\
+	extended_type_var   : extended_type *['[' ?[expr] ']']; \\\n\
    extended_or_func_type: extended_type | func_type; \\\n\
-    flow_modifier       : 'flow_root' | 'flow'; \\\n\
-    decl_var            : *[?[const] '*'] ?[const] ?['__restrict'] ?['('] ?['&'] ?[&V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']']; \\\n\
-    decl_var2           : *[?[const] '*'] ?[const] ?['__restrict'] ?['('] ?['&'] ?[&V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']']; \\\n\
-    attribute           : ^O '__attribute__' '(' '(' *[(token ?[token] | token '(' *[(token | const_value | token '=' const_value), ','] ')'), ','] ')' ')'; \\\n\
-    ext_modifier        : '__extension__' | 'extern' | 'extern' '\"C\"' | 'extern' '\"C++\"'; \\\n\
-    func_modifier       : ext_modifier | 'virtual' | 'static' | 'inline' | 'explicit' | 'friend' | flow_modifier ; \\\n\
-    member_modifier     : ext_modifier | 'mutable' | 'static' ; \\\n\
+	flow_modifier		: 'flow_root' | 'flow'; \\\n\
+	decl_var			: *[?[const] '*'] ?[const] ?['__restrict'] ?['('] ?[('&' | '*')] ?[&V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']']; \\\n\
+	decl_var2   		: *[?[const] '*'] ?[const] ?['__restrict'] ?['('] ?[('&' | '*')] ?[&V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']']; \\\n\
+	attribute			: ^O '__attribute__' '(' '(' *[(any_token ?[any_token] | any_token '(' *[(any_token | const_value | any_token '=' const_value), ','] ')'), ','] ')' ')'; \\\n\
+	ext_modifier		: '__extension__' | 'extern' | 'extern' '\"C\"' | 'extern' '\"C++\"'; \\\n\
+	func_modifier		: ext_modifier | 'virtual' | 'static' | 'inline' | 'explicit' | 'friend' | flow_modifier ; \\\n\
+	member_modifier		: ext_modifier | 'mutable' | 'static' ; \\\n\
     data_type_modifier  : const | 'volatile' ; \\\n\
-    enum_def            : 'enum' ?[token] ^O '{' (*[&V token ?['=' expr ], ','] | *[&V token ?['=' expr] ','] ) '}'; \\\n\
-    union_def           : 'union' ?[token] ^O '{' %[defs, '}'] '}'; \\\n\
-    class_access_modifier: 'public' | 'protected' | 'private' ; \\\n\
-    class_def_body      : ^O class_access_modifier ':' \\\n\
+	enum_def			: 'enum' ?[token] ^O '{' (*[&V token ?['=' expr ], ','] | *[&V token ?['=' expr] ','] ) '}'; \\\n\
+	union_def			: 'union' ?[token] ^O '{' %[defs, '}'] '}'; \\\n\
+	class_access_modifier: 'public' | 'protected' | 'private' ; \\\n\
+	class_def_body		: ^O class_access_modifier ':' \\\n\
                         | 'friend' class_struct_union user_def_type ^O ';' \\\n\
-                        | defs \\\n\
-                        ; \\\n\
-    base_class_defs     : +[ ?['virtual'] ?[class_access_modifier] user_def_type, ','] ; \\\n\
-    class_def           : ('class' | 'struct') scope ?[token] ?[ ':' %[base_class_defs, '{'] ] ^O '{' %[class_def_body, '}'] '}' ; \\\n\
-    super_type          : type | enum_def | union_def | class_def ; \\\n\
+						| defs \\\n\
+						; \\\n\
+	base_class_defs		: +[ ?['virtual'] ?[class_access_modifier] user_def_type, ','] ; \\\n\
+	class_def			: ('class' | 'struct') ?[attribute] scope ?[token] ?[ ':' %[base_class_defs, '{'] ] ^O '{' %[class_def_body, '}'] '}' ; \\\n\
+	super_type			: type | enum_def | union_def | class_def ; \\\n\
     builtin_type_funcs  : '__alignof__' | '__is_abstract' | '__is_class' | '__is_empty' | '__is_pod' | '__has_nothrow_assign' | '__has_nothrow_copy' | '__has_trivial_assign' | '__has_trivial_copy' | '__has_trivial_destructor' ; \\\n\
-    expr                :@1 expr '.' (?['~'] token | 'operator' operator) |@1 expr '->' (?['~'] token | 'operator' operator) \\\n\
-                        |@2 expr '(' *[expr, ','] ')' |@2 scope 'operator' operator '(' ?[expr] ')' |@2 expr '[' expr ']' \\\n\
-                        |@3 expr '++' |@3 expr '--' |@3 '++' expr |@3 '--' expr |@3 '+' expr |@3 '-' expr |@3 '!' expr |@3 '~' expr |@3 '(' extended_or_func_type ')' expr \\\n\
-                        |@3 '*' expr |@3 '&' expr |@3 'sizeof' '(' (extended_type_var | func_type | expr) ')' \\\n\
+	expr				:@1 expr '.' (?['~'] token | 'operator' operator) |@1 expr '->' (?['~'] token | 'operator' operator) \\\n\
+						|@2 expr '(' *[expr, ','] ')' |@2 scope 'operator' operator '(' ?[expr] ')' |@2 expr '[' expr ']' \\\n\
+						|@3 expr '++' |@3 expr '--' |@3 '++' expr |@3 '--' expr |@3 '+' expr |@3 '-' expr |@3 '!' expr |@3 '~' expr |@3 '(' extended_or_func_type ')' expr \\\n\
+						|@3 '*' expr |@3 '&' expr |@3 'sizeof' '(' (extended_type_var | func_type | expr) ')' \\\n\
                         |@3 scope 'new' extended_type_var |@3 scope 'new' user_def_type '(' expr2 ')' |@3 scope 'new' '(' expr ')' ?[ user_def_type ?[ '(' expr2 ')' ] ] \\\n\
-                        |@3 scope 'delete' expr ?['[' ']'] \\\n\
-                        |@5 expr '*' expr |@5 expr '/' expr |@5 expr '%' expr \\\n\
-                        |@6 expr '+' expr |@6 expr '-' expr |@7 expr '<<' expr |@7 expr '>>' expr \\\n\
-                        |@8 expr '<' expr |@8 expr '<=' expr |@8 expr '>' expr |@8 expr '>=' expr \\\n\
-                        |@9 expr '==' expr |@9 expr '!=' expr \\\n\
-                        |@10 expr '&' expr  |@11 expr '^' expr |@12 expr '|' expr |@13 expr '&&' expr |@14 expr '||' expr  \\\n\
-                        |@15 expr '?' expr ':' expr |@15 expr '=' expr |@15 expr '+=' expr |@15 expr '-=' expr |@15 expr '*=' expr |@15 expr '/=' expr |@15 expr '%=' expr |@15 expr '<<=' expr |@15 expr '>>=' expr |@15 expr '&=' expr |@15 expr '^=' expr |@15 expr '|=' expr \\\n\
-                        |@16 'throw' expr | const_value | token_with_namespace | type '(' expr2 ')' | '(' expr2 ')' | builtin_type_funcs '(' type ')'  \\\n\
-                        | 'static_cast' '<' extended_or_func_type '>' '(' expr ')' | 'dynamic_cast' '<' extended_or_func_type '>' '(' expr ')' | 'reinterpret_cast' '<' extended_or_func_type '>' '(' expr ')' | '__extension__' expr \\\n\
-                        ; \\\n\
-    expr2               : *[expr, ',']; \\\n\
-    decl_obj_var        : token '(' +[expr, ','] ')' ; \\\n\
-    decl_c_var          : ?['__restrict'] decl_var ?[ '=' expr] ; \\\n\
-    decl_c_obj_var      : decl_c_var | decl_obj_var ; \\\n\
+                        |@3 scope 'delete' ?['[' ']'] expr \\\n\
+						|@5 expr '*' expr |@5 expr '/' expr |@5 expr '%' expr \\\n\
+						|@6 expr '+' expr |@6 expr '-' expr |@7 expr '<<' expr |@7 expr '>>' expr \\\n\
+						|@8 expr '<' expr |@8 expr '<=' expr |@8 expr '>' expr |@8 expr '>=' expr \\\n\
+						|@9 expr '==' expr |@9 expr '!=' expr \\\n\
+						|@10 expr '&' expr	|@11 expr '^' expr |@12 expr '|' expr |@13 expr '&&' expr |@14 expr '||' expr  \\\n\
+						|@15 expr '?' expr ':' expr |@15 expr '=' expr |@15 expr '+=' expr |@15 expr '-=' expr |@15 expr '*=' expr |@15 expr '/=' expr |@15 expr '%=' expr |@15 expr '<<=' expr |@15 expr '>>=' expr |@15 expr '&=' expr |@15 expr '^=' expr |@15 expr '|=' expr \\\n\
+						|@16 'throw' expr | const_value | token_with_namespace | type '(' expr2 ')' | '(' expr2 ')' | builtin_type_funcs '(' type ')'  \\\n\
+						| 'const_cast' '<' extended_or_func_type '>' '(' expr ')' | 'static_cast' '<' extended_or_func_type '>' '(' expr ')' | 'dynamic_cast' '<' extended_or_func_type '>' '(' expr ')' | 'reinterpret_cast' '<' extended_or_func_type '>' '(' expr ')' | '__extension__' expr \\\n\
+						; \\\n\
+	expr2			    : *[expr, ',']; \\\n\
+	decl_obj_var		: token '(' +[expr, ','] ')' ; \\\n\
+	decl_c_var		    : ?['__restrict'] decl_var ?[ '=' expr] ; \\\n\
+	decl_c_obj_var	    : decl_c_var | decl_obj_var ; \\\n\
     func_param          : type ?['__restrict'] ?[const] ?[ decl_var2 ?[ '=' expr ] ?[attribute] ] | func_type ;  \\\n\
     func_params         : *[func_param, ','] ?[('...' | ',' '...')] ;  \\\n\
     func_type           : extended_type ?[ '(' scope '*' ?[token ?[ '(' func_params ')' ] ] ')' ] '(' func_params ')' *[data_type_modifier]; \\\n\
-    func_header         : ?[attribute] *[func_modifier] ?[extended_type] ?[attribute] ?( scope (*['*'] ?['~'] token | 'operator' operator) ?['<' '>'] '(' %[func_params, ')'] ')' ) *[data_type_modifier] ?['throw' '(' ?[type] ')'] ; \\\n\
+    func_header         : *[func_modifier] ?[attribute] *[func_modifier] ?[extended_type] ?[attribute] ?( scope (*['*'] ?['~'] token | 'operator' operator) ?['<' '>'] '(' %[func_params, ')'] ')' ) *[data_type_modifier] ?['throw' '(' ?[type] ')'] ; \\\n\
     class_base_init     : user_def_type_no_check '(' ?[expr] ')' ; \\\n\
     class_base_inits    : *[class_base_init, ','] ; \\\n\
     template_type_def   : ?['template' '<' +[template_type_def, ','] '>'] ('class' | 'typename') ?[&T token ?['=' ?['typename'] extended_type_var] ] | type ?[&V token] ?['=' expr]; \\\n\
-    template_header     : +['template' < *[template_type_def, ','] > ] ; \\\n\
-    defs                : ^O ';' \\\n\
+    template_header     : +['template' < %[template_type_def] > ] ; \\\n\
+	defs				: ^O ';' \\\n\
                         | ^E class_struct_union token ^O ';' \\\n\
-                        | ^O 'using' ?['namespace'] scope (token | 'operator' operator) ';' \\\n\
-                        | *[ext_modifier] ^O 'typedef' ^E (super_type decl_var ?[attribute] | \\\n\
+						| ^O 'using' ?['namespace'] scope (token | 'operator' operator) ';' \\\n\
+						| *[ext_modifier] ^O 'typedef' ^E (super_type decl_var ?[attribute] | \\\n\
                                                            extended_type '(' scope '*' token ')' | \\\n\
                                                            extended_type token '(' func_params ')' | \\\n\
                                                            func_type | \\\n\
                                                            '__typeof__' '(' (extended_type | expr) ')' token) ';' \\\n\
-                        | ^E *[member_modifier] super_type *[decl_c_obj_var, ','] ?[attribute] ^O ';' \\\n\
-                        | ?[attribute] func_header ?['__asm' '(' const_value ')'] *[attribute] (?['=' '0'] ^O ';' | ?[ ':' %[class_base_inits, '{'] ] ^O '{' %[statement, '}'] '}') \\\n\
-                        | ^E *[member_modifier] func_type ^O ';' \\\n\
-                        | template_header ( ^O func_header (';' | ?[ ':' %[class_base_inits, '{'] ] ^O '{' %[statement, '}'] '}' ) \\\n\
-                                          | class_struct_union ^O scope token ?[ < +[(extended_type_var | func_type | expr), ','] > ] ?[ ?[ ':' %[base_class_defs, '{'] ] ^O '{' %[class_def_body, '}'] '}' ] ?[attribute] ';' \\\n\
+                        | ^E *[member_modifier] super_type *[decl_c_obj_var, ','] ?[attribute] ?['__asm' '(' const_value ')'] ^O ';' \\\n\
+						| func_header ?['__asm' '(' const_value ')'] *[attribute] (?['=' '0'] ^O ';' | ?[ ':' %[class_base_inits, '{'] ] ^O '{' %[statement, '}'] '}') \\\n\
+						| ^E *[member_modifier] func_type ^O ';' \\\n\
+						| template_header ( ^O func_header (';' | ?[ ':' %[class_base_inits, '{'] ] ^O '{' %[statement, '}'] '}' ) \\\n\
+						                  | class_struct_union ?[attribute] scope ^O token ?[ < +[(extended_type_var | func_type | expr), ','] > ] ?[ ?[ ':' %[base_class_defs, '{'] ] ^O '{' %[class_def_body, '}'] '}' ] ?[attribute] ';' \\\n\
                                           | *[member_modifier] ^O extended_type scope %[decl_c_obj_var, ';'] ';' \\\n\
                                           | ^O 'friend' class_struct_union scope token ';' ) \\\n\
                         | 'extern' 'template' (('class' | 'struct') user_def_type | func_header ) ';' \\\n\
                         | 'extern' 'template' extended_type scope token < *[(extended_type_var | func_type | expr), ','] > '(' %[func_params, ')'] ')' ?[const] ';' \\\n\
-                        ; \\\n\
-    switch_body         : 'case' const_value ':' *[statement] | 'default' ':' *[statement] ; \\\n\
-    statement           : ^O 'break' ';'                        \\\n\
-                        | ^O 'continue' ';'                     \\\n\
-                        | ^O 'return' ^E ?[expr] ';'            \\\n\
-                        | ^O '{' %[statement, '}'] '}'           \\\n\
-                        | ^O 'if' '(' expr ')' statement *[ 'else' 'if' '(' expr ')' statement] ?[ 'else' statement ] \\\n\
-                        | ^O 'while' '(' expr ')' statement \\\n\
-                        | ^O 'do' statement 'while' '(' expr ')' ';'  \\\n\
-                        | ^O 'for' '(' ?[(expr2 | type +[decl_c_obj_var, ','])] ';' ^E ?[expr] ';' expr2 ')' statement  \\\n\
-                        | ^O 'switch' '(' expr ')' '{' %[switch_body, '}'] '}' \\\n\
-                        | ^O 'try' statement +[ 'catch' '(' func_params ')' statement ] \\\n\
-                        | ^O 'flow_wait' '(' expr ',' expr ')' ';' \\\n\
-                        | ^O 'flow_fork' statement \\\n\
-                        | ^O 'flow_try' statement +[ 'flow_catch' '(' expr ',' expr ')' statement ] \\\n\
+						; \\\n\
+	switch_body			: 'case' const_value ':' *[statement] | 'default' ':' *[statement] ; \\\n\
+	statement			: ^O 'break' ';'						\\\n\
+						| ^O 'continue' ';'						\\\n\
+						| ^O 'return' ^E ?[expr] ';'			\\\n\
+						| ^O '{' %[statement, '}'] '}'			 \\\n\
+						| ^O 'if' '(' expr ')' statement *[ 'else' 'if' '(' expr ')' statement] ?[ 'else' statement ] \\\n\
+						| ^O 'while' '(' expr ')' statement \\\n\
+						| ^O 'do' statement 'while' '(' expr ')' ';'  \\\n\
+						| ^O 'for' '(' ?[(expr2 | type +[decl_c_obj_var, ','])] ';' ^E ?[expr] ';' expr2 ')' statement	\\\n\
+						| ^O 'switch' '(' expr ')' '{' %[switch_body, '}'] '}' \\\n\
+						| ^O 'try' statement +[ 'catch' '(' func_params ')' statement ] \\\n\
+						| ^O 'flow_wait' '(' expr ',' expr ')' ';' \\\n\
+						| ^O 'flow_fork' statement \\\n\
+						| ^O 'flow_try' statement +[ 'flow_catch' '(' expr ',' expr ')' statement ] \\\n\
                         | ^O '__asm__' '(' const_value ':' const_value '(' expr ')' ')' ';' \\\n\
                         | ^E expr2 ';' \\\n\
-                        | defs \\\n\
-                        ; \\\n\
-    start               : 'extern' ('\"C\"' | '\"C++\"') ^O '{' %[start, '}'] '}' \\\n\
-                        | ^O 'namespace' ?[token] ?[attribute] '{' %[start, '}'] '}' \\\n\
-                        | defs \\\n\
-                        ; \\\n\
+						| defs \\\n\
+						; \\\n\
+	start				: 'extern' ('\"C\"' | '\"C++\"') ^O '{' %[start, '}'] '}' \\\n\
+						| ?['inline'] ^O 'namespace' ?[token] ?[attribute] '{' %[start, '}'] '}' \\\n\
+						| defs \\\n\
+						; \\\n\
 ";
 
 struct SourceTreeNode {
@@ -197,6 +197,7 @@ enum DeclVarModifierType
     DVMOD_TYPE_CONST_POINTER,
     DVMOD_TYPE_CONST,
     DVMOD_TYPE_REFERENCE,
+    DVMOD_TYPE_INTERNAL_POINTER,
     DVMOD_TYPE_BIT,
     DVMOD_TYPE_PARENTHESIS,
     DVMOD_TYPE_BRACKET
@@ -379,6 +380,7 @@ std::string operatorGetString(const SourceTreeNode* pRoot);
 std::string templateTypeToString(TemplateType t);
 
 std::string tokenGetValue(const SourceTreeNode* pRoot);
+StringVector blockDataGetTokens(void* param);
 
 TokenWithNamespace scopeGetInfo(const SourceTreeNode* pRoot);
 SourceTreeNode* scopeCreate(const TokenWithNamespace& twn);
@@ -456,13 +458,14 @@ std::string declVarGetName(const SourceTreeNode* pRoot);
 int declVarGetDepth(const SourceTreeNode* pRoot);
 std::string declVarGetBitsValue(const SourceTreeNode* pRoot);
 bool declVarIsConst(const SourceTreeNode* pRoot);
+bool declVarIsReference(const SourceTreeNode* pRoot);
+bool declVarHasInternalPointer(const SourceTreeNode* pRoot);
 bool declVarPointerIsConst(const SourceTreeNode* pRoot, int depth); // is the layer of the given depth a pointer or a const pointer?
 int declVarGetBits(const SourceTreeNode* pRoot); // return -1 if not defined
 SourceTreeVector declVarGetExprs(const SourceTreeNode* pRoot);
 SourceTreeNode* declVarCreateByName(const std::string& new_name);
 void declVarAddModifier(SourceTreeNode* pRoot, DeclVarModifierType mode, SourceTreeNode* pExtNode = NULL);
 void declVarChangeName(SourceTreeNode* pRoot, const std::string& new_name);
-bool declVarIsReference(const SourceTreeNode* pRoot);
 void declVarSetReference(SourceTreeNode* pRoot);
 SourceTreeNode* declVarCreateFromExtendedType(const std::string& name, const SourceTreeNode* pRoot);
 
@@ -547,9 +550,8 @@ void defVarDefGetVarByIndex(const SourceTreeNode* pRoot, int idx, bool& bObjVar,
 //SourceTreeNode* defVarDefCreate(SourceTreeNode* pSuperType, SourceTreeNode* pDeclVar, SourceTreeNode* pInitExpr = NULL);
 //header_type == 0: data, 1: expr, when header_type==0, pTypeNode is in templateTypeParams
 void templateTypeDefGetInfo(const SourceTreeNode* pRoot, int& header_type, SourceTreeVector& templateTypeParams, bool& bClass, std::string& name, bool& bHasTypename, SourceTreeNode*& pDefaultNode);
-void defTemplateHeaderGetTypeByIndex(const SourceTreeNode* pRoot, int templateIdx, int typeIdx, SourceTreeNode*& pChild);
 
-void defTemplateGetInfo(const SourceTreeNode* pRoot, TemplateType& template_type, std::vector<int>& typeCounts); //
+void defTemplateGetInfo(const SourceTreeNode* pRoot, TemplateType& template_type, std::vector<void*>& header_types);
 void defTemplateFuncGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pFuncHeaderNode, void*& pClassBaseInitBlock, void*& body_data);
 void defTemplateClassGetInfo(const SourceTreeNode* pRoot, CSUType& csu_type, TokenWithNamespace& twn, int& specializedTypeCount, void*& pBaseClassDefsBlock, void*& body_data);
 void defTemplateVarGetInfo(const SourceTreeNode* pRoot, int& modifier_bits, SourceTreeNode*& pExtendedTypeNode, SourceTreeNode*& pScopeNode, void*& block_data);
@@ -566,7 +568,7 @@ void defExternTemplateFuncGetParamByIndex(const SourceTreeNode* pRoot, int idx, 
 
 BlockType blockGetType(const SourceTreeNode* pRoot);
 void blockExternGetInfo(const SourceTreeNode* pRoot, int& modifier_bits, void*& bracket_block);
-void blockNamespaceGetInfo(const SourceTreeNode* pRoot, std::string& name, SourceTreeNode* pAttribute, void*& bracket_block);
+void blockNamespaceGetInfo(const SourceTreeNode* pRoot, bool& bInline, std::string& name, SourceTreeNode* pAttribute, void*& bracket_block);
 SourceTreeNode* blockDefGetNode(const SourceTreeNode* pRoot);
 //void blockFuncGetInfo(const SourceTreeNode* pRoot, int& modifier_bits, SourceTreeNode*& pFuncHeaderNode, int& memberInitCount, void*& bracket_block);
 //void blockFuncGetMemberInitByIndex(const SourceTreeNode* pRoot, int idx, std::string& name, SourceTreeNode*& pExpr);
@@ -627,7 +629,7 @@ protected:
         std::vector<SourceTreeNodeWithType> template_params;
     };
 public:
-    TokenWithNamespace() : m_bHasRootSign(false), m_bHasCopy(false)
+    TokenWithNamespace() : m_bHasCopy(false), m_bHasRootSign(false)
     {
     }
 
@@ -817,9 +819,6 @@ public:
 
 	bool onLexerCallback(int mode, std::string& s);
 
-protected:
-	friend SourceTreeNode* dupSourceTreeNode(const SourceTreeNode* pSourceNode);
-
 	struct GrammarTreeNode {
 		std::string	name;
 		std::string param;
@@ -837,6 +836,9 @@ protected:
 		StringVector		file_stack;
 		int					file_line_no;
 	};
+
+protected:
+	friend SourceTreeNode* dupSourceTreeNode(const SourceTreeNode* pSourceNode);
 
 	typedef std::map<std::string, GrammarTreeNode*> GrammarMap;
 
@@ -899,6 +901,5 @@ protected:
 };
 
 void grammarSetCheckFunc(GrammarCheckFunc checkFunc, GrammarCallback callback);
-StringVector grammarBracketBlockGetTokens(void* param);
 
 #endif // __GRAMMAR__H_

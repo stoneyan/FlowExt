@@ -48,8 +48,8 @@ const char* g_grammar_str = "\
 	extended_type_var   : extended_type *['[' ?[expr] ']']; \\\n\
    extended_or_func_type: extended_type | func_type; \\\n\
 	flow_modifier		: 'flow_root' | 'flow'; \\\n\
-	decl_var			: *[?[const] '*'] ?[const] ?['__restrict'] ?['('] ?['&'] ?[&V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']']; \\\n\
-	decl_var2   		: *[?[const] '*'] ?[const] ?['__restrict'] ?['('] ?['&'] ?[&V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']']; \\\n\
+	decl_var			: *[?[const] '*'] ?[const] ?['__restrict'] ?['('] ?[('&' | '*')] ?[&V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']']; \\\n\
+	decl_var2   		: *[?[const] '*'] ?[const] ?['__restrict'] ?['('] ?[('&' | '*')] ?[&V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']']; \\\n\
 	attribute			: ^O '__attribute__' '(' '(' *[(any_token ?[any_token] | any_token '(' *[(any_token | const_value | any_token '=' const_value), ','] ')'), ','] ')' ')'; \\\n\
 	ext_modifier		: '__extension__' | 'extern' | 'extern' '\"C\"' | 'extern' '\"C++\"'; \\\n\
 	func_modifier		: ext_modifier | 'virtual' | 'static' | 'inline' | 'explicit' | 'friend' | flow_modifier ; \\\n\
@@ -92,7 +92,7 @@ const char* g_grammar_str = "\
     class_base_init     : user_def_type_no_check '(' ?[expr] ')' ; \\\n\
     class_base_inits    : *[class_base_init, ','] ; \\\n\
     template_type_def   : ?['template' '<' +[template_type_def, ','] '>'] ('class' | 'typename') ?[&T token ?['=' ?['typename'] extended_type_var] ] | type ?[&V token] ?['=' expr]; \\\n\
-    template_header     : +['template' < *[template_type_def, ','] > ] ; \\\n\
+    template_header     : +['template' < %[template_type_def] > ] ; \\\n\
 	defs				: ^O ';' \\\n\
                         | ^E class_struct_union token ^O ';' \\\n\
 						| ^O 'using' ?['namespace'] scope (token | 'operator' operator) ';' \\\n\
@@ -105,7 +105,7 @@ const char* g_grammar_str = "\
 						| func_header ?['__asm' '(' const_value ')'] *[attribute] (?['=' '0'] ^O ';' | ?[ ':' %[class_base_inits, '{'] ] ^O '{' %[statement, '}'] '}') \\\n\
 						| ^E *[member_modifier] func_type ^O ';' \\\n\
 						| template_header ( ^O func_header (';' | ?[ ':' %[class_base_inits, '{'] ] ^O '{' %[statement, '}'] '}' ) \\\n\
-						                  | class_struct_union ^O scope token ?[ < +[(extended_type_var | func_type | expr), ','] > ] ?[ ?[ ':' %[base_class_defs, '{'] ] ^O '{' %[class_def_body, '}'] '}' ] ?[attribute] ';' \\\n\
+						                  | class_struct_union ?[attribute] scope ^O token ?[ < +[(extended_type_var | func_type | expr), ','] > ] ?[ ?[ ':' %[base_class_defs, '{'] ] ^O '{' %[class_def_body, '}'] '}' ] ?[attribute] ';' \\\n\
                                           | *[member_modifier] ^O extended_type scope %[decl_c_obj_var, ';'] ';' \\\n\
                                           | ^O 'friend' class_struct_union scope token ';' ) \\\n\
                         | 'extern' 'template' (('class' | 'struct') user_def_type | func_header ) ';' \\\n\
@@ -130,7 +130,7 @@ const char* g_grammar_str = "\
 						| defs \\\n\
 						; \\\n\
 	start				: 'extern' ('\"C\"' | '\"C++\"') ^O '{' %[start, '}'] '}' \\\n\
-						| ^O 'namespace' ?[token] ?[attribute] '{' %[start, '}'] '}' \\\n\
+						| ?['inline'] ^O 'namespace' ?[token] ?[attribute] '{' %[start, '}'] '}' \\\n\
 						| defs \\\n\
 						; \\\n\
 ";
@@ -156,7 +156,7 @@ void printSourceTree(const SourceTreeNode* pSourceNode);
 void deleteSourceTreeNode(SourceTreeNode* pSourceNode, int depth, int idx)
 {
 	//printf("deleting depth=%d, idx=%d\n", depth, idx);
-	MY_ASSERT(depth < 100);
+	MY_ASSERT(depth < 200);
 
 	if (!pSourceNode)
 		return;
@@ -528,6 +528,11 @@ std::string templateTypeToString(TemplateType t)
 std::string tokenGetValue(const SourceTreeNode* pRoot)
 {
 	return pRoot->value;
+}
+
+StringVector blockDataGetTokens(void* param)
+{
+	return ((CGrammarAnalyzer::BracketBlock*)param)->tokens;
 }
 
 CSUType csuGetType(const SourceTreeNode* pRoot)
@@ -1158,6 +1163,8 @@ SourceTreeNode* extendedTypeCreateFromType(SourceTreeNode* pTypeNode, SourceTree
 	        extendedTypeAddModifier(pRoot, DVMOD_TYPE_CONST);
 	    if (declVarIsReference(pDeclVar))
             extendedTypeAddModifier(pRoot, DVMOD_TYPE_REFERENCE);
+	    if (declVarHasInternalPointer(pDeclVar))
+	        extendedTypeAddModifier(pRoot, DVMOD_TYPE_INTERNAL_POINTER);
 	}
 
 	return pRoot;
@@ -1196,6 +1203,12 @@ void extendedTypeAddModifier(SourceTreeNode* pRoot, DeclVarModifierType mod)
         break;
 
 	case DVMOD_TYPE_REFERENCE:
+		pRoot = pRoot->pNext->pNext->pNext;
+		MY_ASSERT(pRoot->param == 0);
+		pRoot->param = 1;
+		break;
+
+	case DVMOD_TYPE_INTERNAL_POINTER:
 		pRoot = pRoot->pNext->pNext->pNext;
 		MY_ASSERT(pRoot->param == 0);
 		pRoot->param = 1;
@@ -1639,6 +1652,7 @@ void superTypeGetInfo(const SourceTreeNode* pRoot, SuperTypeType& super_type, So
 	pChildNode = pRoot->pChild->pChild;
 }
 
+// *[?[const] '*'] ?[const] ?['__restrict'] ?['('] ?['&' | '*'] ?[token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']'];
 std::string declVarGetName(const SourceTreeNode* pRoot)
 {
 	pRoot = pRoot->pNext->pNext->pNext->pNext->pNext;
@@ -1651,7 +1665,10 @@ std::string declVarGetName(const SourceTreeNode* pRoot)
 int declVarGetDepth(const SourceTreeNode* pRoot)
 {
 	int ret = pRoot->param;
-	pRoot = pRoot->pNext->pNext->pNext->pNext->pNext->pNext->pNext->pNext;
+	pRoot = pRoot->pNext->pNext->pNext->pNext;
+	if (pRoot->param && pRoot->pChild->pChild->param == 1)
+		ret++;
+	pRoot = pRoot->pNext->pNext->pNext->pNext;
 	ret += pRoot->param;
 	pRoot = pRoot->pNext;
 	ret += pRoot->param;
@@ -1668,10 +1685,23 @@ std::string declVarGetBitsValue(const SourceTreeNode* pRoot)
 	return "";
 }
 
-// *[?[const] '*'] ?[const] ?['__restrict'] ?['('] ?['&'] ?[token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']'];
 bool declVarIsConst(const SourceTreeNode* pRoot)
 {
 	return pRoot->pNext->param != 0;
+}
+
+bool declVarIsReference(const SourceTreeNode* pRoot)
+{
+	pRoot = pRoot->pNext->pNext->pNext->pNext;
+
+	return pRoot->param != 0 && pRoot->pChild->pChild->param == 0;
+}
+
+bool declVarHasInternalPointer(const SourceTreeNode* pRoot)
+{
+	pRoot = pRoot->pNext->pNext->pNext->pNext;
+
+	return pRoot->param != 0 && pRoot->pChild->pChild->param == 1;
 }
 
 bool declVarPointerIsConst(const SourceTreeNode* pRoot, int depth) // is the layer of the given depth a pointer or a const pointer?
@@ -1813,7 +1843,20 @@ void declVarAddModifier(SourceTreeNode* pRoot, DeclVarModifierType mode, SourceT
 		break;
 
 	case DVMOD_TYPE_REFERENCE:
-		pRoot->pNext->pNext->pNext->pNext->param = 1;
+		pRoot = pRoot->pNext->pNext->pNext->pNext;
+		MY_ASSERT(pRoot->param == 0);
+		pRoot->param = 1;
+		pRoot->pChild = createEmptyNode();
+		pRoot->pChild->pChild = createEmptyNode();
+		break;
+
+	case DVMOD_TYPE_INTERNAL_POINTER:
+		pRoot = pRoot->pNext->pNext->pNext->pNext;
+		MY_ASSERT(pRoot->param == 0);
+		pRoot->param = 1;
+		pRoot->pChild = createEmptyNode();
+		pRoot->pChild->pChild = createEmptyNode();
+		pRoot->pChild->pChild->param = 1;
 		break;
 
 	case DVMOD_TYPE_PARENTHESIS:
@@ -1886,27 +1929,6 @@ void declVarChangeName(SourceTreeNode* pRoot, const std::string& new_name)
 	MY_ASSERT(pRoot->param > 0);
 
 	pRoot->pChild->value = new_name;
-}
-
-bool declVarIsReference(const SourceTreeNode* pRoot)
-{
-	pRoot = pRoot->pNext->pNext->pNext->pNext;
-
-	return pRoot->param != 0;
-}
-
-void declVarSetReference(SourceTreeNode* pRoot)
-{
-	pRoot = pRoot->pNext->pNext->pNext;
-
-	pRoot->param = 1;
-	pRoot = pRoot->pNext;
-
-	pRoot->param = 1;
-	pRoot = pRoot->pNext;
-
-	pRoot = pRoot->pNext;
-	pRoot->param = 1;
 }
 
 //decl_c_var		  : ?['__restrict'] decl_var ?[ '=' expr] ;
@@ -3099,35 +3121,18 @@ void templateTypeDefGetInfo(const SourceTreeNode* pRoot, int& header_type, Sourc
     }
 }
 
-//template_header     : +['template' < *[template_type_def, ','] > ] ;
-void defTemplateHeaderGetTypeByIndex(const SourceTreeNode* pRoot, int templateIdx, int typeIdx, SourceTreeNode*& pChild)
-{
-    MY_ASSERT(defGetType(pRoot) == DEF_TYPE_TEMPLATE);
-    pRoot = pRoot->pChild->pChild;
-
-    MY_ASSERT(templateIdx >= 0 && templateIdx < pRoot->param);
-    pRoot = pRoot->pChild;
-    for (int i = 0; i < templateIdx; i++)
-        pRoot = pRoot->pNext;
-    pRoot = pRoot->pChild;
-
-    MY_ASSERT(typeIdx >= 0 && typeIdx < pRoot->param);
-    pRoot = pRoot->pChild;
-    for (int i = 0; i < typeIdx; i++)
-        pRoot = pRoot->pNext;
-    pRoot = pRoot->pChild;
-
-    pChild = pRoot->pChild;
-}
-
-void defTemplateGetInfo(const SourceTreeNode* pRoot, TemplateType& template_type, std::vector<int>& typeCounts)
+//template_header     : +['template' < %[template_type_def] > ] ;
+void defTemplateGetInfo(const SourceTreeNode* pRoot, TemplateType& template_type, std::vector<void*>& header_types)
 {
     MY_ASSERT(defGetType(pRoot) == DEF_TYPE_TEMPLATE);
     pRoot = pRoot->pChild;
 
-    typeCounts.clear();
+    header_types.clear();
     for (SourceTreeNode* pNode = pRoot->pChild->pChild; pNode; pNode = pNode->pNext)
-        typeCounts.push_back(pNode->pChild->param);
+    {
+        MY_ASSERT(pNode->pChild->param == SOURCE_NODE_TYPE_BIG_BRACKET);
+    	header_types.push_back(pNode->pChild->ptr);
+    }
     pRoot = pRoot->pNext;
 
     switch (pRoot->pChild->param)
@@ -3178,7 +3183,7 @@ void defTemplateFuncGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pFuncH
 	}
 }
 
-//| class_struct_union ^O scope token ?[ < +[(extended_type_var | func_type | expr), ','] > ] ?[ ?[ ':' %[base_class_defs, '{'] ] ^O '{' %[class_def_body, '}'] '}' ] ?[attribute] ';'
+//| class_struct_union ?[attribute] scope token ?[ < +[(extended_type_var | func_type | expr), ','] > ] ?[ ?[ ':' %[base_class_defs, '{'] ] ^O '{' %[class_def_body, '}'] '}' ] ?[attribute] ';'
 void defTemplateClassGetInfo(const SourceTreeNode* pRoot, CSUType& csu_type, TokenWithNamespace& twn, int& specializedTypeCount, void*& pBaseClassDefsBlock, void*& body_data)
 {
     MY_ASSERT(defGetType(pRoot) == DEF_TYPE_TEMPLATE);
@@ -3190,6 +3195,9 @@ void defTemplateClassGetInfo(const SourceTreeNode* pRoot, CSUType& csu_type, Tok
 	body_data = NULL;
 
 	csu_type = csuGetType(pRoot->pChild);
+	pRoot = pRoot->pNext;
+
+	//attribute
 	pRoot = pRoot->pNext;
 
 	twn = scopeGetInfo(pRoot->pChild);
@@ -3263,14 +3271,14 @@ void defTemplateFriendClassGetInfo(const SourceTreeNode* pRoot, CSUType& csu_typ
     pRoot = pRoot->pNext;
 }
 
-//| ('class' | 'struct') ^O scope token ?[ < +[(extended_type | func_type | expr), ','] > ] (';' | ?[base_class_defs] ^O '{' %[class_def_body, '}'] '}' ';')
+//| class_struct_union ?[attribute] scope token ?[ < +[(extended_type_var | func_type | expr), ','] > ] ?[ ?[ ':' %[base_class_defs, '{'] ] ^O '{' %[class_def_body, '}'] '}' ] ?[attribute] ';'
 void defTemplateClassGetSpecializedTypeByIndex(const SourceTreeNode* pRoot, int idx, TemplateParamType& nParamType, SourceTreeNode*& pChildNode)
 {
     DefType defType = defGetType(pRoot);
 	MY_ASSERT(defType == DEF_TYPE_TEMPLATE);
 	pRoot = pRoot->pChild->pNext->pChild;
 	MY_ASSERT(pRoot->param == 1);
-    pRoot = pRoot->pChild->pNext->pNext->pNext;
+    pRoot = pRoot->pChild->pNext->pNext->pNext->pNext;
     MY_ASSERT(pRoot->param);
     pRoot = pRoot->pChild;
 
@@ -3433,11 +3441,14 @@ void blockExternGetInfo(const SourceTreeNode* pRoot, int& modifier_bits, void*& 
 	bracket_block = pRoot->ptr;
 }
 
-//| 'namespace' ?[token] ?[attribute] '{' ^ *[start] '}'
-void blockNamespaceGetInfo(const SourceTreeNode* pRoot, std::string& name, SourceTreeNode* pAttribute, void*& bracket_block)
+//| ?['inline'] 'namespace' ?[token] ?[attribute] '{' ^ *[start] '}'
+void blockNamespaceGetInfo(const SourceTreeNode* pRoot, bool& bInline, std::string& name, SourceTreeNode* pAttribute, void*& bracket_block)
 {
 	MY_ASSERT(blockGetType(pRoot) == BLOCK_TYPE_NAMESPACE);
 	pRoot = pRoot->pChild;
+
+	bInline = (pRoot->param > 0);
+	pRoot = pRoot->pNext;
 
 	name = "";
 	if (pRoot->param)
@@ -5425,8 +5436,8 @@ std::string CGrammarAnalyzer::readOneGrammarRule(CLexer& grammar_lexer, GrammarT
             {
                 if (pNode->children->next != NULL || !CLexer::isIdentifier(pNode->children->name))
                     return "only one identifier word is allowed in %[]";
-                if (s != ",")
-                    return "end char of %[] must be specified";
+                //if (s != ",")
+                //    return "end char of %[] must be specified";
             }
 			pNode->children->parent = pNode;
 			if (param == "[" && s == ",")
@@ -6440,35 +6451,48 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 			MY_ASSERT(m_grammar_map.find(pGrammar->children->name) != m_grammar_map.end());
 			pBlock->pGrammarNode = m_grammar_map[pGrammar->children->name];
 
-			std::string end_str = pGrammar->param.substr(1, pGrammar->param.size() - 2);
-			int depth = 0;
-			while (true)
+			if (pGrammar->param.empty())
 			{
-				s = grammar_read_word(n, -1, false);
-				if (s.empty())
-					throw ("cannot find '" + end_str + "' that matches '{' starts at " + pBlock->file_stack.back() + ":" + ltoa(pBlock->file_line_no));
-
-				if (depth == 0)
+				MY_ASSERT(end_n >= 0);
+				while (true)
 				{
-                    if (s == end_str)
-                    {
-                        n--;
-                        break;
-                    }
-                }
-
-				if (s == "(" || s == "[" || s == "{")
-					depth++;
-				else if (s == ")" || s == "]" || s == "}")
-				{
-					if (depth == 0)
-						throw ("unpair " + s + " found");
-					depth--;
+					s = grammar_read_word(n, end_n, false);
+					if (s.empty())
+						break;
+					pBlock->tokens.push_back(s);
 				}
-
-				pBlock->tokens.push_back(s);
 			}
+			else
+			{
+				std::string end_str = pGrammar->param.substr(1, pGrammar->param.size() - 2);
+				int depth = 0;
+				while (true)
+				{
+					s = grammar_read_word(n, -1, false);
+					if (s.empty())
+						throw ("cannot find '" + end_str + "' that matches '{' starts at " + pBlock->file_stack.back() + ":" + ltoa(pBlock->file_line_no));
 
+					if (depth == 0)
+					{
+						if (s == end_str)
+						{
+							n--;
+							break;
+						}
+					}
+
+					if (s == "(" || s == "[" || s == "{")
+						depth++;
+					else if (s == ")" || s == "]" || s == "}")
+					{
+						if (depth == 0)
+							throw ("unpair " + s + " found");
+						depth--;
+					}
+
+					pBlock->tokens.push_back(s);
+				}
+			}
 			pSourceNode->ptr = pBlock;
 			TRACE("***{ found at %s:%d, n=%d\n", m_srcfile_lexer.get_cur_filename().c_str(), m_srcfile_lexer.get_cur_line_no(), n);
 		}

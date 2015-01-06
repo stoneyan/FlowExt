@@ -770,7 +770,7 @@ protected:
     bool compareResolvedDefParams(const TemplateResolvedDefParamVector& typeList, const TemplateResolvedDefParamVector& typeList2);
     int resolveParamType(const SourceTreeNode* pExtendedTypeNode, TypeDefPointer pTypeDef, TemplateResolvedDefParamVector& resolvedDefParams, bool bMatchType = false);
     int resolveParamNumValue(const SourceTreeNode* pExprNode, long numValue, TemplateResolvedDefParamVector& resolvedDefParams);
-    TypeParam readTemplateTypeParam(const SourceTreeNode* pRoot, int templateIdx, int typeIdx);
+    TypeParam readTemplateTypeParam(const SourceTreeNode* pChild);
     CTemplate* classResolveParamForBaseTemplate(const TemplateResolvedDefParamVector& realTypeList);
     int classResolveParamForSpecializedTemplate(const TemplateResolvedDefParamVector& realTypeList, CTemplate*& pRetTemplate);
     CTemplate* classMatchForATemplate_(const TemplateResolvedDefParamVector& realTypeList);

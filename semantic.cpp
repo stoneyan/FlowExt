@@ -15,6 +15,8 @@ SymbolDefObject g_global_symbol_obj;
 std::vector<CNamespace*> g_namespace_stack;
 
 std::string g_buildin_funcs =
+	"typedef short __char16_t;\n"
+	"typedef long __char32_t;\n"
 	"void* operator new(unsigned);\n"
 	"void operator delete(unsigned);\n"
     //"int __builtin_types_compatible_p (type1, type2);\n"
@@ -788,7 +790,7 @@ CTypeDef::CTypeDef(CScope* pScope, const std::string& name, SemanticDataType typ
 
 	MY_ASSERT(type == SEMANTIC_TYPE_DATA_MEMBER_POINTER);
 	MY_ASSERT(pScope);
-	MY_ASSERT(pDataScope->getType() == SEMANTIC_TYPE_CLASS || pDataScope->getType() == SEMANTIC_TYPE_TEMPLATE);
+	MY_ASSERT(pDataScope->getType() == SEMANTIC_TYPE_CLASS || pDataScope->getType() == SEMANTIC_TYPE_STRUCT || pDataScope->getType() == SEMANTIC_TYPE_TEMPLATE);
 	m_name = name;
 	m_type = type;
 	m_pBaseTypeDef = pTypeDef;
@@ -2279,7 +2281,7 @@ TypeDefPointer CScope::getTypeDefByTypeNode(const SourceTreeNode* pRoot, bool bD
 		if (pSymbolObj->type == GO_TYPE_TYPEDEF)
 		{
 			pDataScope = pSymbolObj->getTypeDef();
-			MY_ASSERT(pDataScope->getType() == SEMANTIC_TYPE_CLASS);
+			MY_ASSERT(pDataScope->getType() == SEMANTIC_TYPE_CLASS || pDataScope->getType() == SEMANTIC_TYPE_STRUCT);
 		}
 		else
 			throw(twn.toString() + " is not a class type");
@@ -4897,8 +4899,8 @@ void CStatement::analyzeDef(const SourceTreeNode* pRoot, bool bTemplate)
 	case DEF_TYPE_TEMPLATE:
 	{
 		TemplateType template_type;
-		std::vector<int> typeCounts;
-		defTemplateGetInfo(pRoot, template_type, typeCounts);
+	    std::vector<void*> header_types;
+	    defTemplateGetInfo(pRoot, template_type, header_types);
 
 		switch (template_type)
 		{
@@ -6932,11 +6934,8 @@ bool CTemplate::inParamTypeNames(const std::string s)
 	return false;
 }
 
-CTemplate::TypeParam CTemplate::readTemplateTypeParam(const SourceTreeNode* pRoot, int templateIdx, int typeIdx)
+CTemplate::TypeParam CTemplate::readTemplateTypeParam(const SourceTreeNode* pChild)
 {
-    SourceTreeNode* pChild;
-    defTemplateHeaderGetTypeByIndex(pRoot, templateIdx, typeIdx, pChild);
-
 	std::string typeName;
 	SourceTreeVector templateTypeParams;
 	SourceTreeNode* pDefaultNode;
@@ -7010,12 +7009,17 @@ void CTemplate::readTemplateHeaderIntoTypeParams(const SourceTreeNode* pRoot)
     MY_ASSERT(m_typeParams.empty());
 
     TemplateType template_type;
-    std::vector<int> typeCounts;
-    defTemplateGetInfo(pRoot, template_type, typeCounts);
+    std::vector<void*> header_types;
+    defTemplateGetInfo(pRoot, template_type, header_types);
 
-    for (int i = 0; i < typeCounts.back(); i++)
+	CGrammarAnalyzer ga2;
+	ga2.initWithTokens(this, "template_type_def", blockDataGetTokens(header_types.back()), ",");
+    while (true)
     {
-        TypeParam param = readTemplateTypeParam(pRoot, typeCounts.size() - 1, i);
+    	SourceTreeNode* pHeaderTypeNode = ga2.getBlock();
+    	if (pHeaderTypeNode == NULL)
+    		break;
+        TypeParam param = readTemplateTypeParam(pHeaderTypeNode);
         if (!param.name.empty())
         {
             if (param.type == TEMPLATE_PARAM_TYPE_DATA)
@@ -7027,6 +7031,7 @@ void CTemplate::readTemplateHeaderIntoTypeParams(const SourceTreeNode* pRoot)
         }
         m_typeParams.push_back(param);
     }
+	MY_ASSERT(ga2.isEmpty());
 }
 
 void CTemplate::analyzeFunc(const SourceTreeNode* pRoot)
@@ -7034,8 +7039,8 @@ void CTemplate::analyzeFunc(const SourceTreeNode* pRoot)
 	MY_ASSERT(m_nTemplateType == TEMPLATE_TYPE_FUNC);
 
 	TemplateType template_type;
-	std::vector<int> typeCounts;
-	defTemplateGetInfo(pRoot, template_type, typeCounts);
+    std::vector<void*> header_types;
+    defTemplateGetInfo(pRoot, template_type, header_types);
 	MY_ASSERT(template_type == TEMPLATE_TYPE_FUNC);
 
 	SourceTreeNode* pFuncHeaderNode;
@@ -7292,8 +7297,8 @@ void CTemplate::analyzeBaseClass(const SourceTreeNode* pRoot)
 	MY_ASSERT(m_nTemplateType == TEMPLATE_TYPE_CLASS);
 
 	TemplateType template_type;
-	std::vector<int> typeCounts;
-	defTemplateGetInfo(pRoot, template_type, typeCounts);
+    std::vector<void*> header_types;
+    defTemplateGetInfo(pRoot, template_type, header_types);
 	MY_ASSERT(template_type == TEMPLATE_TYPE_CLASS);
 
 	int specializedTypeCount;
@@ -7303,11 +7308,11 @@ void CTemplate::analyzeBaseClass(const SourceTreeNode* pRoot)
 	defTemplateClassGetInfo(pRoot, csu_type, twn, specializedTypeCount, pBaseClassDefsBlock, body_data);
 	MY_ASSERT(twn.getLastToken() == m_name);
 
-	MY_ASSERT(typeCounts.size() == 1);
+	MY_ASSERT(header_types.size() == 1);
 	MY_ASSERT(specializedTypeCount == 0); // not a specialized def
 
 	TRACE("CTemplate::%s, root template, path=%s\n", __FUNCTION__, getPath().c_str());
-	if (typeCounts.back() == 0)
+	if (blockDataGetTokens(header_types.back()).empty())
 		throw("Type parameters cannot be empty in a template definition");
 
 	MY_ASSERT(csu_type != CSU_TYPE_ENUM);
@@ -7327,8 +7332,8 @@ CTemplate* CTemplate::analyzeSpecializedClass(const SourceTreeNode* pRoot)
 	MY_ASSERT(m_nTemplateType == TEMPLATE_TYPE_CLASS);
 
 	TemplateType template_type;
-	std::vector<int> typeCounts;
-	defTemplateGetInfo(pRoot, template_type, typeCounts);
+    std::vector<void*> header_types;
+    defTemplateGetInfo(pRoot, template_type, header_types);
 	MY_ASSERT(template_type == TEMPLATE_TYPE_CLASS);
 
 	int specializedTypeCount;
@@ -7338,7 +7343,7 @@ CTemplate* CTemplate::analyzeSpecializedClass(const SourceTreeNode* pRoot)
 	defTemplateClassGetInfo(pRoot, csu_type, twn, specializedTypeCount, pBaseClassDefsBlock, body_data);
 	MY_ASSERT(twn.getLastToken() == m_name);
 
-	MY_ASSERT(typeCounts.size() == 1);
+	MY_ASSERT(header_types.size() == 1);
 	MY_ASSERT(specializedTypeCount != 0);
 
 	// for specialized template defs
@@ -7359,9 +7364,15 @@ CTemplate* CTemplate::analyzeSpecializedClass(const SourceTreeNode* pRoot)
 	std::map<std::string, std::string> typeNameMap;
 	int nameSeq = 1;
 	std::vector<TypeParam> typeParams, specializedTypeParams;
-	for (int i = 0; i < typeCounts.back(); i++)
+
+	CGrammarAnalyzer ga2;
+	ga2.initWithTokens(this, "template_type_def", blockDataGetTokens(header_types.back()), ",");
+	while (true)
 	{
-		TypeParam param = readTemplateTypeParam(pRoot, typeCounts.size() - 1, i);
+    	SourceTreeNode* pHeaderTypeNode = ga2.getBlock();
+    	if (pHeaderTypeNode == NULL)
+    		break;
+		TypeParam param = readTemplateTypeParam(pHeaderTypeNode);
 
 		std::string newName;
 		switch (param.type)
@@ -7382,6 +7393,7 @@ CTemplate* CTemplate::analyzeSpecializedClass(const SourceTreeNode* pRoot)
 		typeNameMap[param.name] = newName;
 		typeParams.push_back(param);
 	}
+	MY_ASSERT(ga2.isEmpty());
 
 	size_t i;
 	for (i = 0; i < specializedTypeCount; i++)
@@ -7865,8 +7877,8 @@ void CTemplate::analyzeVar(const SourceTreeNode* pRoot)
 	MY_ASSERT(m_nTemplateType == TEMPLATE_TYPE_VAR);
 
 	TemplateType template_type;
-	std::vector<int> typeCounts;
-	defTemplateGetInfo(pRoot, template_type, typeCounts);
+    std::vector<void*> header_types;
+    defTemplateGetInfo(pRoot, template_type, header_types);
 	MY_ASSERT(template_type == TEMPLATE_TYPE_VAR);
 
 	SourceTreeNode* pExtendedTypeNode, *pScopeNode;
@@ -7884,8 +7896,8 @@ void CTemplate::analyzeFriendClass(const SourceTreeNode* pRoot)
 	MY_ASSERT(m_nTemplateType == TEMPLATE_TYPE_FRIEND_CLASS);
 
 	TemplateType template_type;
-	std::vector<int> typeCounts;
-	defTemplateGetInfo(pRoot, template_type, typeCounts);
+    std::vector<void*> header_types;
+    defTemplateGetInfo(pRoot, template_type, header_types);
 	MY_ASSERT(template_type == TEMPLATE_TYPE_FRIEND_CLASS);
 
 	SourceTreeNode* pScope;
@@ -9286,9 +9298,10 @@ void CNamespace::analyze(const SourceTreeNode* pRoot)
 	case BLOCK_TYPE_NAMESPACE:
 	{
 		std::string name;
+		bool bInline;
 		void* bracket_block;
 		SourceTreeNode* pAttribute;
-		blockNamespaceGetInfo(pRoot, name, pAttribute, bracket_block);
+		blockNamespaceGetInfo(pRoot, bInline, name, pAttribute, bracket_block);
 		CNamespace* pNamespace = NULL, *pParentNamespace;
 		if (!name.empty())
 		{
