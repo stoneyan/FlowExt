@@ -637,7 +637,7 @@ public:
     bool has_trivial_copy();
     bool has_trivial_destructor();
 
-    void analyzeByTemplate();
+    bool analyzeByTemplate();
 
 protected:
 	struct BaseClassCAMPair {
@@ -717,9 +717,12 @@ public:
     virtual SymbolDefObject* findSymbol(const std::string& name, FindSymbolMode mode);
     SymbolDefObject* findSymbolInBaseClasses(const std::string& name);
 
-    void analyzeFunc(const SourceTreeNode* pRoot);
-    void analyzeBaseClass(const SourceTreeNode* pRoot);
-    CTemplate* analyzeSpecializedClass(const SourceTreeNode* pRoot);
+    void addHeaderTypeDefs(const std::vector<void*>& header_types);
+    void analyzeBody(CGrammarAnalyzer* pGrammarAnalyzer);
+
+    void analyzeFunc(const std::vector<void*>& header_types, const SourceTreeNode* pRoot);
+    void analyzeBaseClass(const std::vector<void*>& header_types, const SourceTreeNode* pRoot);
+    CTemplate* analyzeSpecializedClass(const std::vector<void*>& header_types, const SourceTreeNode* pRoot);
     void saveClassBody(void* pBaseClassDefsBlock, void* body_data);
     void analyzeClassBody(void* pBaseClassDefsBlock, void* body_data);
     void analyzeVar(const SourceTreeNode* pRoot);
@@ -765,7 +768,7 @@ protected:
 	friend class CStatement;
 
 	void createParamTypeFromTemplateHeader(const SourceTreeNode* pRoot);
-	void readTemplateHeaderIntoTypeParams(const SourceTreeNode* pRoot);
+	void readTemplateHeaderIntoTypeParams(const std::vector<void*>& header_types);
     static int findResolvedDefParam(const TemplateResolvedDefParamVector& v, const std::string& name);
     bool compareResolvedDefParams(const TemplateResolvedDefParamVector& typeList, const TemplateResolvedDefParamVector& typeList2);
     int resolveParamType(const SourceTreeNode* pExtendedTypeNode, TypeDefPointer pTypeDef, TemplateResolvedDefParamVector& resolvedDefParams, bool bMatchType = false);
@@ -837,8 +840,8 @@ public:
 	CVarDef* getVarAt(int idx) { return m_var_list[idx]; }
 	//SourceTreeNode*	getTypeSourceNode() { return m_pSourceNode; }
 
-	void analyze(const SourceTreeNode* pRoot);
-	void analyzeDef(const SourceTreeNode* pRoot, bool bTemplate = false);
+	void analyze(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTreeNode* pRoot);
+	void analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTreeNode* pRoot, bool bTemplate = false);
 	virtual std::string toString(int depth);
 	std::string toDefString(int depth);
 
@@ -859,6 +862,7 @@ public:
 
 protected:
 	TypeDefPointer analyzeSuperType(const SourceTreeNode* pSuperTypeNode, bool bAllowUndefinedStruct = false);
+	void analyzeDeclVar(SourceTreeNode* pChildNode, SourceTreeVector& var_v);
 
 public:
 	// def_pre_decl, typedef func, typedef func ptr: m_pTypeDef
@@ -969,7 +973,7 @@ public:
 	void addUnnamedNamespace(CNamespace* pNamespace) { m_unnamed_namespaces.push_back(pNamespace); }
     void addUsingNamespace(CNamespace* pNamespace);
 
-	void analyze(const SourceTreeNode* pRoot);
+	void analyze(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTreeNode* pRoot);
 	void analyzeFuncDef(const SourceTreeNode* pRoot);
 
 	virtual SymbolDefObject* findSymbol(const std::string& name, FindSymbolMode mode);

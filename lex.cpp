@@ -715,8 +715,6 @@ std::string CLexer::read_word2(bool bCrossNewLine)
                 }
                 continue;
             }
-            ret_s += c;
-            break;
         }
         if (isalpha(c) || c == '_')
         {
