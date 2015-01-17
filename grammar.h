@@ -908,6 +908,8 @@ protected:
 	void init();
 };
 
+void grammarLogDisable();
+void grammarLogEnable();
 void grammarSetCheckFunc(GrammarCheckFunc checkFunc, GrammarCallback callback);
 
 #endif // __GRAMMAR__H_

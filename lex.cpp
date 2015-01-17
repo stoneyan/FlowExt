@@ -2497,6 +2497,7 @@ void CLexer::startWithTokens(const StringVector& tokens)
     std::string s = m_tokens[0];
     string_2_file_stack(s, m_file_stack, m_file_line_no);
     m_tokens.erase(m_tokens.begin());
+
     MY_ASSERT(m_file_stack.size() > 0);
 }
 

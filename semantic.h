@@ -83,6 +83,7 @@ public:
     virtual std::string getDebugName() { return m_name; }
 
     std::string getPath();
+    std::string getDebugPath();
 
     CScope* getParent() { return m_pParent; }
     void setParent(CScope* pParent) { m_pParent = pParent; }
@@ -178,6 +179,7 @@ public:
     bool is_abstract();
     bool is_class();
 	bool is_empty();
+    bool is_enum();
 	bool is_pod();
     bool has_nothrow_assign();
     bool has_nothrow_copy();
@@ -710,9 +712,9 @@ public:
     bool isSame(const CTemplate* pTemplate) const;
     SemanticDataType getClassType() { return m_data_type; } // struct or class
 
-    bool isRootTemplate() { MY_ASSERT(getTemplateType() == TEMPLATE_TYPE_CLASS); return m_name == m_template_name && m_specializedTypeParams.empty(); }
+    bool isRootTemplate() { return m_name == m_template_name && m_specializedTypeParams.empty(); }
     bool isSpecializedTemplate() { MY_ASSERT(getTemplateType() == TEMPLATE_TYPE_CLASS); return m_name == m_template_name && !m_specializedTypeParams.empty(); }
-    bool isInstancedTemplate() { MY_ASSERT(getTemplateType() == TEMPLATE_TYPE_CLASS); return m_name != m_template_name; }
+    bool isInstancedTemplate() { return m_name != m_template_name; }
 
     virtual SymbolDefObject* findSymbol(const std::string& name, FindSymbolMode mode);
     SymbolDefObject* findSymbolInBaseClasses(const std::string& name);
@@ -747,7 +749,7 @@ public:
     void addSpecializedTemplate(CTemplate* pTemplate);
     CTemplate* findSpecializedTemplateByUniqueId(const std::string& uniqueId);
 
-    void setResolvedDefParams(const TemplateResolvedDefParamVector& v) { m_resolvedDefParams = v; }
+    void setResolvedDefParams(const TemplateResolvedDefParamVector& v);
     int getScore() { return m_score; }
     void setScore(int score) { m_score = score; }
 
@@ -771,7 +773,9 @@ protected:
 	void readTemplateHeaderIntoTypeParams(const std::vector<void*>& header_types);
     static int findResolvedDefParam(const TemplateResolvedDefParamVector& v, const std::string& name);
     bool compareResolvedDefParams(const TemplateResolvedDefParamVector& typeList, const TemplateResolvedDefParamVector& typeList2);
+    int resolveParamNameType(const TokenWithNamespace& twn, TypeDefPointer pTypeDef, TemplateResolvedDefParamVector& resolvedDefParams);
     int resolveParamType(const SourceTreeNode* pExtendedTypeNode, TypeDefPointer pTypeDef, TemplateResolvedDefParamVector& resolvedDefParams, bool bMatchType = false);
+    int resolveParamFunc(const SourceTreeNode* pFuncNode, TypeDefPointer pTypeDef, TemplateResolvedDefParamVector& resolvedDefParams);
     int resolveParamNumValue(const SourceTreeNode* pExprNode, long numValue, TemplateResolvedDefParamVector& resolvedDefParams);
     TypeParam readTemplateTypeParam(const SourceTreeNode* pChild);
     CTemplate* classResolveParamForBaseTemplate(const TemplateResolvedDefParamVector& realTypeList);
@@ -802,7 +806,8 @@ protected:
 
     std::vector<SymbolDefObject>	m_specializeDefList; // special list of root template
 
-    TemplateResolvedDefParamVector m_resolvedDefParams; // for instanced template only
+    TemplateResolvedDefParamVector m_resolvedDefParams; // for instanced template only, which type is a type param defined to, e.g. T=int*
+    TemplateResolvedDefParamVector m_resolvedTypeParams; // for instanced template only, list of real types and values e.g. <int*, string>
     TokenWithNamespace             m_varName; // for VAR and friend class only
     CSUType                 m_csu_type; // for friend_class only
     int                     m_score; // for specialized template only
@@ -947,7 +952,7 @@ public:
 	FlowType					m_flow_type;
 	CFuncDeclare*               m_pFuncDeclare;
 
-	std::vector< std::pair<TokenWithNamespace, CExpr*> >   m_memberInitList;
+	std::vector< std::pair<TokenWithNamespace, CExpr2*> >   m_memberInitList;
     ClassAccessModifierType     m_cam_type;
 };
 

@@ -43,7 +43,7 @@ const char* g_grammar_str = "\
   user_def_type_no_check: scope ?['template'] token ?[ < *[(extended_type_var|expr), ','] > ]; \\\n\
 	basic_type			: 'void' | 'va_list' | '__builtin_va_list' | +[('signed' | 'unsigned' | 'char' | 'short' | 'int' | 'long' | 'float' | 'double' | '__int128' | 'bool' | 'wchar_t')]; \\\n\
 	class_struct_union  : 'union' | 'struct' | 'class' | 'enum' ; \\\n\
-	type				: *[data_type_modifier] ( basic_type | class_struct_union user_def_type_no_check | ?['typename' ^N] user_def_type | '__typeof' '(' twn_nocheck ')' ) *[data_type_modifier] ?[ *[?[const] '*'] ?[const] ?['&'] hard_scope '*'] ;\\\n\
+	type				: *[data_type_modifier] ( basic_type | (class_struct_union | 'typename') user_def_type_no_check | user_def_type | '__typeof' '(' twn_nocheck ')' ) *[data_type_modifier] ?[ *[?[const] '*'] ?[const] ?['&'] hard_scope '*'] ;\\\n\
 	extended_type		: type *[?[const] '*'] *[data_type_modifier] ?['&']; \\\n\
 	extended_type_var   : extended_type *['[' ?[expr] ']']; \\\n\
    extended_or_func_type: extended_type | func_type; \\\n\
@@ -65,7 +65,7 @@ const char* g_grammar_str = "\
 	base_class_defs		: +[ ?['virtual'] ?[class_access_modifier] ?['virtual'] user_def_type, ','] ; \\\n\
 	class_def			: ('class' | 'struct') ?[attribute] scope ?[token] ?[ ':' %[base_class_defs, '{'] ] ^O '{' %[class_def_body, '}'] '}' ; \\\n\
 	super_type			: type | enum_def | union_def | class_def ; \\\n\
-    builtin_type_funcs  : '__alignof__' | '__is_abstract' | '__is_class' | '__is_empty' | '__is_pod' | '__has_nothrow_assign' | '__has_nothrow_copy' | '__has_trivial_assign' | '__has_trivial_copy' | '__has_trivial_destructor' ; \\\n\
+    builtin_type_funcs  : '__alignof__' | '__is_abstract' | '__is_class' | '__is_empty' | '__is_enum' | '__is_pod' | '__has_nothrow_assign' | '__has_nothrow_copy' | '__has_trivial_assign' | '__has_trivial_copy' | '__has_trivial_destructor' ; \\\n\
 	expr				:@1 expr '.' (?['~'] token | 'operator' operator) |@1 expr '->' (?['~'] token | 'operator' operator) \\\n\
 						|@2 expr '(' *[expr, ','] ')' |@2 scope 'operator' operator '(' ?[expr] ')' |@2 expr '[' expr ']' \\\n\
 						|@3 expr '++' |@3 expr '--' |@3 '++' expr |@3 '--' expr |@3 '+' expr |@3 '-' expr |@3 '!' expr |@3 '~' expr |@3 '(' extended_or_func_type ')' expr \\\n\
@@ -89,8 +89,8 @@ const char* g_grammar_str = "\
     func_param          : type ?['__restrict'] ?[const] ?[ decl_var2 ?[ '=' expr ] ?[attribute] ] | func_type ;  \\\n\
     func_params         : *[func_param, ','] ?[('...' | ',' '...')] ;  \\\n\
     func_type           : extended_type ?[ '(' scope '*' ?[token ?[ '(' func_params ')' ] ] ')' ] '(' func_params ')' *[data_type_modifier]; \\\n\
-    func_header         : *[func_modifier] ?[attribute] *[func_modifier] ?[extended_type] ?[attribute] ?( scope (*['*'] ?['~'] token | 'operator' operator) ?['<' '>'] '(' %[func_params, ')'] ')' ) *[data_type_modifier] ?['throw' '(' ?[type] ')'] ; \\\n\
-    class_base_init     : user_def_type_no_check '(' ?[expr] ')' ; \\\n\
+    func_header         : *[func_modifier] ?[attribute] *[func_modifier] ?[extended_type] ?[attribute] ?( scope (*['*'] ?['~'] token | 'operator' operator) ?['<' *[(extended_type_var|expr), ','] '>'] '(' %[func_params, ')'] ')' ) *[data_type_modifier] ?['throw' '(' ?[type] ')'] ; \\\n\
+    class_base_init     : user_def_type_no_check '(' expr2 ')' ; \\\n\
     class_base_inits    : *[class_base_init, ','] ; \\\n\
     template_type_def   : ?['template' '<' +[template_type_def, ','] '>'] ('class' | 'typename') ?[&T token ?['=' ?['typename' ^N] extended_type_var] ] | type ?[&V token] ?['=' expr]; \\\n\
     template_body       : ( ^O func_header (';' | ?[ ':' %[class_base_inits, '{'] ] ^O '{' %[statement, '}'] '}' ) \\\n\
@@ -154,6 +154,16 @@ GrammarCallback g_grammarCallback = NULL;
 void printSourceTree(const SourceTreeNode* pSourceNode);
 
 #define GRAMMAR_LOG(x)	{ if (g_grammar_log) printf("%s\n", (x).c_str()); }
+
+void grammarLogDisable()
+{
+    g_grammar_log = false;
+}
+
+void grammarLogEnable()
+{
+    g_grammar_log = true;
+}
 
 void deleteSourceTreeNode(SourceTreeNode* pSourceNode, int depth, int idx)
 {
@@ -860,7 +870,7 @@ SourceTreeNode* basicTypeCreate(BasicTypeBasicType basic_type)
 	return pRoot;
 }
 
-//type                : *[data_type_modifier] ( basic_type | class_struct_union user_def_type_no_check | ?['typename' ^N] user_def_type | '__typeof' '(' twn_nocheck ')' ) *[data_type_modifier] ?[ *[?[const] '*'] ?[const] ?['&'] scope '*'] ;
+//type                : *[data_type_modifier] ( basic_type | (class_struct_union | 'typename') user_def_type_no_check | user_def_type | '__typeof' '(' twn_nocheck ')' ) *[data_type_modifier] ?[ *[?[const] '*'] ?[const] ?['&'] hard_scope '*'];
 int typeGetModifierBits(const SourceTreeNode* pRoot)
 {
     int modifier_bits = 0;
@@ -938,29 +948,29 @@ CSUType typeUserDefinedGetInfo(const SourceTreeNode* pRoot, bool& bHasTypename, 
 {
 	MY_ASSERT(typeGetType(pRoot) == BASICTYPE_TYPE_USER_DEF);
 
-	CSUType csu_type;
+	bHasTypename = false;
+    CSUType csu_type = CSU_TYPE_NONE;
+
 	pRoot = pRoot->pNext->pChild;
 
 	if (pRoot->param == 1)
 	{
 		pRoot = pRoot->pChild;
-		csu_type = csuGetType(pRoot->pChild);
+		if (pRoot->pChild->param == 0)
+		    csu_type = csuGetType(pRoot->pChild->pChild->pChild);
+		else
+		    bHasTypename = true;
 		pRoot = pRoot->pNext;
 	}
 	else
 	{
-        csu_type = CSU_TYPE_NONE;
 		pRoot = pRoot->pChild;
-
-		bHasTypename = (pRoot->param != 0);
-		pRoot = pRoot->pNext;
 	}
 
 	pChild = pRoot->pChild;
 	return csu_type;
 }
 
-//type				: *[data_type_modifier] (basic_type ^ | ?[class_struct_union] user_def_type ^) *[data_type_modifier];
 SourceTreeNode* typeCreateByBasic(SourceTreeNode* pChild)
 {
 	SourceTreeNode* pRoot, *pNode;
@@ -990,16 +1000,10 @@ SourceTreeNode* typeCreateByBasic(SourceTreeNode* pChild)
 	return pRoot;
 }
 
+//type                : *[data_type_modifier] ( basic_type | (class_struct_union | 'typename') user_def_type_no_check | user_def_type | '__typeof' '(' twn_nocheck ')' ) *[data_type_modifier] ?[ *[?[const] '*'] ?[const] ?['&'] hard_scope '*'] ;
 SourceTreeNode* typeCreateByUserDefined(CSUType csu_type, SourceTreeNode* pChild)
 {
 	SourceTreeNode* pRoot, *pNode;
-
-	pRoot = createEmptyNode();
-	pRoot->pChild = pChild;
-
-	pNode = createEmptyNode();
-	pNode->pNext = pRoot;
-	pRoot = pNode;
 
 	// csu_type
 	if (csu_type != CSU_TYPE_NONE)
@@ -1022,22 +1026,52 @@ SourceTreeNode* typeCreateByUserDefined(CSUType csu_type, SourceTreeNode* pChild
 		default:
 			MY_ASSERT(false);
 		}
+	    pRoot = createEmptyNode();
 		pRoot->pChild = pNode;
+
+		//'|'
+        pNode = createEmptyNode();
+        pNode->pChild = pRoot;
+        pRoot = pNode;
+
+        //'()'
+        pNode = createEmptyNode();
+        pNode->pChild = pRoot;
+        pRoot = pNode;
+
+        pNode = createEmptyNode();
+        pNode->pChild = pChild;
+        pRoot->pNext = pNode;
+
+        pNode = createEmptyNode();
+        pNode->param = 1;
+        pNode->pChild = pRoot;
+        pRoot = pNode;
+
+        //'()'
+        pNode = createEmptyNode();
+        pNode->pChild = pRoot;
+        pRoot = pNode;
+	}
+	else
+	{
+        pRoot = createEmptyNode();
+        pRoot->pChild = pChild;
+
+        pNode = createEmptyNode();
+        pNode->param = 2;
+        pNode->pChild = pRoot;
+        pRoot = pNode;
+
+        //'()'
+        pNode = createEmptyNode();
+        pNode->pChild = pRoot;
+        pRoot = pNode;
 	}
 
-	// '|'
-	pNode = createEmptyNode();
-	pNode->param = 1;
-	pNode->pChild = pRoot;
-	pRoot = pNode;
-
-	// '('
-	pNode = createEmptyNode();
-	pNode->pChild = pRoot;
-	pRoot = pNode;
-
-    // the last *[data_type_modifier]
+    // the last *[data_type_modifier] and ?[]
     pRoot->pNext = createEmptyNode();
+    pRoot->pNext->pNext = createEmptyNode();
 
 	// the first *[data_type_modifier]
 	pNode = createEmptyNode();
@@ -2166,16 +2200,18 @@ std::string exprGetBuiltinFuncTypeName(const SourceTreeNode* pRoot)
     case 3:
         return "__is_empty";
     case 4:
-        return "__is_pod";
+        return "__is_enum";
     case 5:
-        return "__has_nothrow_assign";
+        return "__is_pod";
     case 6:
-        return "__has_nothrow_copy";
+        return "__has_nothrow_assign";
     case 7:
-        return "__has_trivial_assign";
+        return "__has_nothrow_copy";
     case 8:
-        return "__has_trivial_copy";
+        return "__has_trivial_assign";
     case 9:
+        return "__has_trivial_copy";
+    case 10:
         return "__has_trivial_destructor";
     }
 
@@ -2344,15 +2380,13 @@ void exprOrDeclVarGetInfo(const SourceTreeNode* pRoot, bool& bIsExpr, SourceTree
     }
 }
 
-//class_base_init     : user_def_type_no_check '(' ?[expr] ')' ;
-void classBaseInitGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pUserDefTypeOrMember, SourceTreeNode*& pExpr)
+//class_base_init     : user_def_type_no_check '(' expr2 ')' ;
+void classBaseInitGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pUserDefTypeOrMember, SourceTreeNode*& pExpr2)
 {
     pUserDefTypeOrMember = pRoot->pChild;
     pRoot = pRoot->pNext;
 
-    pExpr = NULL;
-    if (pRoot->param)
-        pExpr = pRoot->pChild->pChild;
+    pExpr2 = pRoot->pChild;
 }
 
 SourceTreeVector classBaseInitsGetList(const SourceTreeNode* pRoot)
@@ -6277,6 +6311,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
                     }
                     else
                     {
+                        int line_no = m_srcfile_lexer.get_cur_line_no();
                         MY_ASSERT(pSourceNode->pChild);
                         if (name == "token_with_namespace")
                         {
@@ -6409,8 +6444,8 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 			appendToChildTail(pSourceParent, pSourceNode);
 			BracketBlock* pBlock = new BracketBlock;
 			StringVector file_stack;
-			file_stack.push_back(m_gf.buffered_keywords[n - 1].file_name);
-			pBlock->tokens.push_back(CLexer::file_stack_2_string(file_stack, m_gf.buffered_keywords[n - 1].line_no));
+			file_stack.push_back(m_gf.buffered_keywords[n].file_name);
+			pBlock->tokens.push_back(CLexer::file_stack_2_string(file_stack, m_gf.buffered_keywords[n].line_no));
 			MY_ASSERT(CLexer::isIdentifier(pGrammar->children->name));
 			MY_ASSERT(pGrammar->children->next == NULL);
 			MY_ASSERT(m_grammar_map.find(pGrammar->children->name) != m_grammar_map.end());
@@ -6744,7 +6779,7 @@ bool CGrammarAnalyzer::postIdentifierHandling(const std::string& grammarName, So
 
 bool CGrammarAnalyzer::isEmpty()
 {
-    return m_srcfile_lexer.is_empty();
+    return m_gf.buffered_keywords.empty() && m_srcfile_lexer.is_empty();
 }
 
 SourceTreeNode* CGrammarAnalyzer::getBlock(StringVector* pBlockData /* = NULL*/, const std::string grammar/* = ""*/, void* context /* = NULL*/)
