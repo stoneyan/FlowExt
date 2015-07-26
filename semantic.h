@@ -2,9 +2,9 @@
 #define __SEMANTIC__H_
 
 #include "grammar.h"
-#include <boost/optional.hpp>
+//#include <boost/optional.hpp>
 #include <boost/shared_ptr.hpp>
-#include <boost/unordered_map.hpp>
+//#include <boost/unordered_map.hpp>
 #include <boost/enable_shared_from_this.hpp>
 
 struct SymbolDefObject;
@@ -63,11 +63,17 @@ enum SemanticDataType
     SEMANTIC_TYPE_TYPEOF, // __typeof()
 };
 
+enum FindSymbolScope
+{
+    FIND_SYMBOL_SCOPE_LOCAL,
+    FIND_SYMBOL_SCOPE_SCOPE,
+    FIND_SYMBOL_SCOPE_PARENT,
+};
+
 enum FindSymbolMode
 {
-    FIND_SYMBOL_MODE_LOCAL,
-    FIND_SYMBOL_MODE_SCOPE,
-    FIND_SYMBOL_MODE_PARENT,
+    FIND_SYMBOL_MODE_ANY,
+    FIND_SYMBOL_MODE_TEMPLATE, // search for template only
 };
 
 class CGrammarObject
@@ -112,8 +118,8 @@ public:
 	CTypeDef(CScope* pScope, const std::string& name, const StandardType& basic_tokens);
 	// enum or union or struct or class
 	CTypeDef(CScope* pScope, const std::string& name, CClassDef* pClassDef);
-	// func or func ptr, depth can be 0 or 1. pReturnType might be empty pointer for constructor or destructor
-	CTypeDef(CScope* pScope, const std::string& name, TypeDefPointer pReturnType, int modifier_bits, int depth);
+	// func or func ptr, depth is 0 means a func declare, otherwise it's a func ptr. pReturnType might be empty pointer for constructor or destructor
+	CTypeDef(CScope* pScope, const std::string& name, SemanticDataType type, TypeDefPointer pReturnType, int depth);
 	// data member ptr
     CTypeDef(CScope* pScope, const std::string& name, SemanticDataType type, TypeDefPointer pTypeDef, TypeDefPointer pDataScope);
     // template
@@ -126,7 +132,7 @@ public:
 	// there's one case that when a struct/class is defined, if want to reference it, we can create a CTypeDef with name set to the name,
 	//   pBaseTypeDef set to the real type, pDeclVar set to NULL. We can use isBaseType() to distinguish the two.
 	// for typedef types, pDeclVar should not be NULL
-	CTypeDef(CScope* pScope, const std::string& name, TypeDefPointer pBaseTypeDef, SourceTreeNode* pDeclVar);
+	CTypeDef(CScope* pScope, const std::string& name, TypeDefPointer pBaseTypeDef, int extra_depth/*, bool bReference = false, bool bConst = false*/);
 	virtual ~CTypeDef();
 
 	//virtual std::string getName() { return m_name; }
@@ -137,11 +143,7 @@ public:
     //CScope* getParent() { return m_pScope; }
 	SemanticDataType getType() { return m_type; }
 	void setType(SemanticDataType newType) { m_type = newType; }
-	int getModifierBits() { return m_modifier_bits; }
-	bool isConst() { return m_modifier_bits & MODBIT_CONST; }
-	void setConst(bool bConst = true) { if (bConst) m_modifier_bits |= MODBIT_CONST; else m_modifier_bits &= ~MODBIT_CONST; }
-    bool isVolatile() { return m_modifier_bits & MODBIT_VOLATILE; }
-    bool isVirtual() { return m_modifier_bits & MODBIT_VIRTUAL; }
+	//int getModifierBits() { return m_modifier_bits; }
 	bool isBaseType() { return !m_pBaseTypeDef; }
 	TypeDefPointer getBaseType() { return m_pBaseTypeDef ? m_pBaseTypeDef : shared_from_this(); }
     CClassDef* getClassDef() { return (CClassDef*)m_pSpecialType; }
@@ -150,9 +152,19 @@ public:
     int getFullDepth();
 	bool isReference() { return m_bReference; }
 	void setReference(bool b) { m_bReference = b; }
+	bool isConst();
+	void setConst(bool bConst = true);
+    bool isVolatile();
+    bool isVirtual();
+	std::string getDisplayStr() { return m_display_str; }
+
 	bool isVoid();
 	bool isZero() { return m_bZero; }
 	void setZero() { m_bZero = true; }
+
+	void setPrefix(const std::string& prefix) { m_prefix = prefix; }
+	std::string getPrefix() { return m_prefix; }
+	//void setDeclspecStrings(const std::string& declspec_strings) { m_func_declspec_strings = declspec_strings; }
 
 	TypeDefPointer getFuncReturnType() { return m_pFuncReturnType; }
 	void addFuncParam(CVarDef* pParam);
@@ -164,17 +176,26 @@ public:
 	FlowType getFuncFlowType();
 	bool isPureVirtual() { return m_bPureVirtual; }
     void setPureVirtual(bool bPureVirtual) { m_bPureVirtual = bPureVirtual; }
-    bool hasFuncThrow() { return m_bFuncThrow; }
+    int getFuncThrow() { return m_nFuncThrow; }
     SourceTreeNode* getFuncThrowTypeNode() { return m_pThrowTypeNode; }
-    void setThrow(bool bThrow, SourceTreeNode* pThrowTypeNode);
+    void setThrow(int bThrow, SourceTreeNode* pThrowTypeNode);
+	void setModStrings(const StringVector& mod_strings);
+	void setMod2Strings(const StringVector& mod_strings);
+	void setMod3Strings(const StringVector& mod_strings);
+	void setMod4Strings(const StringVector& mod_strings);
+	void setDisplayFlag(bool bFlag = true) { m_display_flag = bFlag; }
+	void setFuncReturnTypeNode(SourceTreeNode* pReturnTypeNode) { m_pFuncReturnTypeNode = pReturnTypeNode; }
     int checkCallParams(const std::vector<TypeDefPointer>& typeList, bool bCallerIsConst);
+	StringVector& getModStrings() { return m_mod_strings; }
 
 	virtual std::string toString(int depth = 0);
+	std::string toFuncString(const std::string& name);
 	std::string toBaseTypeString(int depth = 0);
 	std::string toFullString();
+	void setDisplayString(const std::string& str) { m_display_str = str; }
 	static std::string type2String(SemanticDataType basic_type);
-	SourceTreeNode*	getDeclVarNode() { return m_pDeclVarNode; }
-	std::string funcTypeToString(const std::string& name);
+	//SourceTreeNode*	getDeclVarNode() { return m_pDeclVarNode; }
+	//std::string funcTypeToString(const std::string& name);
 
     bool is_abstract();
     bool is_class();
@@ -197,21 +218,28 @@ protected:
 	TypeDefPointer	m_pBaseTypeDef;
 	StandardType 	m_basic_tokens;
 	CScope*         m_pSpecialType;
-	int             m_modifier_bits;
+	StringVector	m_mod_strings;
+	StringVector	m_mod2_strings;
+	StringVector	m_mod3_strings;
+	StringVector	m_mod4_strings;
+	bool			m_display_flag; // for func type, true means a parenthesis around mod3_strings and name
+	std::string		m_prefix;
 	bool            m_bZero; // only valid when it's basic type int
 
 	int 			m_depth; // relative to m_pBaseTypeDef
 	bool 			m_bReference;
+	std::string		m_display_str;
 
-	SourceTreeNode*	m_pDeclVarNode;
+	//SourceTreeNode*	m_pDeclVarNode;
 
 	TokenWithNamespace  m_typeof_twn;
 
 	// for base func declare only
 	TypeDefPointer	m_pFuncReturnType;
+	SourceTreeNode*	m_pFuncReturnTypeNode;
     std::vector<CVarDef*>         m_func_params;
 	bool			m_bHasVArgs;
-	bool            m_bFuncThrow;
+	int             m_nFuncThrow;
 	SourceTreeNode* m_pThrowTypeNode;
 	bool            m_bPureVirtual;
 };
@@ -258,14 +286,19 @@ public:
     virtual GrammarObjectType getGoType() { return GO_TYPE_VAR_DEF; }
 	TypeDefPointer getType() { return m_type; }
 	void setType(TypeDefPointer pTypeDef) { m_type = pTypeDef; }
+
+	// if it's a C++ object with constructor parameters
 	bool hasConstructor() { return m_bHasConstructor; }
+
 	bool isFlow();
+
 	bool isReference() { return declVarIsReference(m_pDeclVar); }
 	void setReference() { declVarSetReference(m_pDeclVar); }
-	//CScope* getParent() { return m_pParent; }
-	//void setParent(CScope* pParent) { m_pParent = pParent; }
+
 	void setRestrict(bool bRestrict = true) { m_bRestrict = bRestrict; }
 	bool isRestrict() { return m_bRestrict; }
+	void setExtern(bool bExtern = true) { m_bExtern = bExtern; }
+	bool isExtern() { return m_bExtern; }
 
 	void setDeclVarNode(SourceTreeNode* pDeclVar) { MY_ASSERT(pDeclVar); m_pDeclVar = pDeclVar; }
 	SourceTreeNode* getDeclVarNode() { return m_pDeclVar; }
@@ -292,6 +325,7 @@ protected:
 	bool            m_bHasConstructor;
 	SourceTreeNode*	m_pDeclVar;
 	bool			m_bReference;
+	bool			m_bExtern;
 	ExprVector		m_exprList; // either expr list in decl var or constructing param list
 	CExpr*			m_pInitExpr;
 
@@ -335,6 +369,23 @@ struct SymbolDefObject {
 	    MY_ASSERT(pObj->getGoType() == GO_TYPE_USING_OBJECTS);
 	    return ((CUsingObject*)pObj)->getSymbolObj()->getTypeDef();
 	}
+
+	CGrammarObject* findChildByType(GrammarObjectType t)
+	{
+		BOOST_FOREACH(CGrammarObject* pObj, children)
+		{
+			if (pObj->getGoType() == t)
+				return pObj;
+			/*if (pObj->getGoType() == GO_TYPE_USING_OBJECTS)
+			{
+				CVarDef* pVarDef = ((CUsingObject*)pObj)->getSymbolObj()->getVarDef();
+				if (pVarDef)
+					return pVarDef;
+			}*/
+		}
+		return NULL;
+	}
+
     CTemplate* getTemplateAt(int i = 0)
     {
         MY_ASSERT(type == GO_TYPE_TEMPLATE);
@@ -366,20 +417,47 @@ struct SymbolDefObject {
     }
     CVarDef* getVarDef()
     {
-        MY_ASSERT(type == GO_TYPE_VAR_DEF);
-        MY_ASSERT(children.size() == 1);
-        CGrammarObject* pObj = children[0];
-        if (pObj->getGoType() == GO_TYPE_VAR_DEF)
-            return (CVarDef*)pObj;
-        MY_ASSERT(pObj->getGoType() == GO_TYPE_USING_OBJECTS);
-        return ((CUsingObject*)pObj)->getSymbolObj()->getVarDef();
+        //MY_ASSERT(type == GO_TYPE_VAR_DEF);
+        //MY_ASSERT(children.size() == 1);
+		BOOST_FOREACH(CGrammarObject* pObj, children)
+		{
+			if (pObj->getGoType() == GO_TYPE_VAR_DEF)
+				return (CVarDef*)pObj;
+			if (pObj->getGoType() == GO_TYPE_USING_OBJECTS)
+			{
+				CVarDef* pVarDef = ((CUsingObject*)pObj)->getSymbolObj()->getVarDef();
+				if (pVarDef)
+					return pVarDef;
+			}
+		}
+		return NULL;
     }
+	void removeVarDef()
+	{
+		for (unsigned i = 0; i < children.size(); i++)
+		{
+			CGrammarObject* pObj = children[i];
+			if (pObj->getGoType() == GO_TYPE_VAR_DEF)
+			{
+				children.erase(children.begin() + i);
+				return;
+			}
+			if (pObj->getGoType() == GO_TYPE_USING_OBJECTS)
+			{
+				CVarDef* pVarDef = ((CUsingObject*)pObj)->getSymbolObj()->getVarDef();
+				if (pVarDef)
+				{
+					children.erase(children.begin() + i);
+					return;
+				}
+			}
+		}
+		MY_ASSERT(false);
+	}
 	std::string definedIn() const
 	{
 	    return children[0]->getDefFileName() + ":" + ltoa(children[0]->getDefLineNo());
 	}
-
-	void checkBestMatchedFunc(const std::vector<TypeDefPointer>& param_v, bool bCallerIsConst, int& minUnmatchCount, std::vector<CGrammarObject*>& matched_v);
 };
 
 typedef std::map<std::string, SymbolDefObject>	SymbolDefMap;
@@ -416,8 +494,9 @@ public:
 		}
 	}
 
-	CScope* getRealScope() { return m_bRealScope ? this : m_pParent->getRealScope(); }
     CFunction* getFunctionScope();
+	bool isRealScope() { return m_bRealScope; }
+	CScope* getRealScope() { return m_bRealScope ? this : m_pParent->getRealScope(); }
 	void setRealScope(bool bRealScope) { m_bRealScope = bRealScope; }
 	virtual std::string toString(int depth = 0) = 0;
 
@@ -464,7 +543,7 @@ public:
 	void addEnumDef(const std::string& name, CClassDef* pClassDef, int nValue);
     void addTemplate(CTemplate* pTemplate);
     void addUsingObjects(const std::string& name, SymbolDefObject* pObj);
-	virtual SymbolDefObject* findSymbol(const std::string& name, FindSymbolMode mode);
+	virtual SymbolDefObject* findSymbol(const std::string& name, FindSymbolScope scope, FindSymbolMode mode = FIND_SYMBOL_MODE_ANY);
 	CFuncDeclare* findFuncDeclare(SymbolDefObject* pDefObj, int paramCount = -1);
 	CFuncDeclare* findFuncDeclare(SymbolDefObject* pDefObj, TypeDefPointer pTypeDef = TypeDefPointer());
 	//TypeDefPointer findTypeDef(const std::string& name);
@@ -568,13 +647,12 @@ protected:
 	// token with namespace
 	TokenWithNamespace	m_token_with_namespace;
 
-	// token
-	//CVarDef* 		m_pVarDef;
-
 	// sizeof: extended_type_var, new: extended_type_var, type_cast
 	//SourceTreeNode*	m_pNode;
-	TypeDefPointer	m_pTypeDef;
+	TypeDefPointer	m_pTypeDef, m_pTypeDef2;
 
+	// type_cast
+	SourceTreeNode*		m_pSourceTreeNode;
 	// delete: has []
 	bool 			m_bFlag;
 };
@@ -612,12 +690,13 @@ public:
 	SemanticDataType getType() { return m_type; }
 	virtual std::string getName() { return m_name; }
     std::string getTemplateName() { return m_template_name; }
+	std::string getClassName() { return m_template_name.empty() ? getName() : getTemplateName(); }
 	bool isDefined() { return m_bDefined; }
 	void setDefined(bool bDefined) { m_bDefined = bDefined; }
     bool isWithinTemplate() { return m_bWithinTemplate; }
     void setWithinTemplate(bool b = true) { m_bWithinTemplate = b; }
 
-	virtual SymbolDefObject* findSymbol(const std::string& name, FindSymbolMode mode);
+	virtual SymbolDefObject* findSymbol(const std::string& name, FindSymbolScope scope, FindSymbolMode mode = FIND_SYMBOL_MODE_ANY);
 	SymbolDefObject* findSymbolInBaseClasses(const std::string& name);
 
 	void analyze(const SourceTreeNode* pRoot);
@@ -646,6 +725,7 @@ protected:
 	    bool bVirtual;
 	    ClassAccessModifierType cam_type;
 	    TypeDefPointer  pTypeDef;
+		SourceTreeNode*	pTypeNode;
 	};
     struct TempBlock {
 	    TempBlock(CFunction* p, void* i, void* b, const SourceTreeNode* r) : pFunc(p), pBaseClassInitBlock(i), bracket_block(b), pRoot(r) {}
@@ -654,12 +734,19 @@ protected:
         void* bracket_block;
         const SourceTreeNode* pRoot;
     };
+    struct ClassDefBlock {
+	    ClassDefBlock(CStatement* p, const SourceTreeNode* r) : pStatement(p), pRoot(r) {}
+        CStatement* pStatement;
+        const SourceTreeNode* pRoot;
+    };
     friend class CTemplate;
 	bool			                m_bDefined;	// for struct or union only
 	bool                            m_bWithinTemplate; // it's a class within a template, not instanced. its instanced class should be under the instance template of its parent template
+	bool							m_enum_has_last_comma;
 	SemanticDataType                m_type;
 	std::string                     m_template_name;
 	std::vector<BaseClassCAMPair>   m_baseTypeList;
+	StringVector					m_mod_strings;
 
 	TypeDefPointer                  m_pTypeDef;
 };
@@ -674,7 +761,7 @@ typedef std::vector<TemplateResolvedDefParam> TemplateResolvedDefParamVector;
 
 struct FuncParamItem {
     FuncParamType param_type;
-    int modifierBits;
+    StringVector mod_strings;
     // if it's a recognized type, then pTypeDef is set, pDeclVarNode only carries var name; otherwise, pTypeNode and pDeclVarNode is used.
     SourceTreeNode* pTypeNode, *pDeclVarNode, *pInitExprNode;
     TypeDefPointer pTypeDef;
@@ -688,8 +775,10 @@ class CTemplate : public CScope
 public:
     struct TypeParam {
         TemplateParamType type;
-        bool bHasDefault;
+		bool bClass; // for data type, it's a class or typename
         bool bHasTypename;
+        bool bHasDefault;
+		bool bDefaultDataOrFuncType;
         std::string name;
         TypeDefPointer  pNumValueType; // data type of num def
         SourceTreeNode* pTypeNode; // only valid for data_type
@@ -702,7 +791,7 @@ public:
 
     virtual std::string getDebugName();
     virtual GrammarObjectType getGoType() { return GO_TYPE_TEMPLATE; }
-    std::string toHeaderString();
+    std::string toHeaderString(int depth);
     virtual std::string toString(int depth = 0) { MY_ASSERT(false); return ""; }
     virtual std::string toString(bool bDefine, int depth = 0);
     bool isDefined() { return m_bDefined; }
@@ -716,7 +805,7 @@ public:
     bool isSpecializedTemplate() { MY_ASSERT(getTemplateType() == TEMPLATE_TYPE_CLASS); return m_name == m_template_name && !m_specializedTypeParams.empty(); }
     bool isInstancedTemplate() { return m_name != m_template_name; }
 
-    virtual SymbolDefObject* findSymbol(const std::string& name, FindSymbolMode mode);
+    virtual SymbolDefObject* findSymbol(const std::string& name, FindSymbolScope scope, FindSymbolMode mode = FIND_SYMBOL_MODE_ANY);
     SymbolDefObject* findSymbolInBaseClasses(const std::string& name);
 
     void addHeaderTypeDefs(const std::vector<void*>& header_types);
@@ -728,6 +817,7 @@ public:
     void saveClassBody(void* pBaseClassDefsBlock, void* body_data);
     void analyzeClassBody(void* pBaseClassDefsBlock, void* body_data);
     void analyzeVar(const SourceTreeNode* pRoot);
+    void analyzeFuncVar(const SourceTreeNode* pRoot);
     void analyzeFriendClass(const SourceTreeNode* pRoot);
     void mergeWithBaseClass(CTemplate* pNewTemplate, bool bReplaceName);
     void mergeWithSpecializedClass(CTemplate* pNewTemplate, bool bReplaceName);
@@ -799,7 +889,11 @@ protected:
     SourceTreeNode*         m_pFuncReturnExtendedTypeNode; // for func and var
     std::vector<FuncParamItem>  m_funcParams;
     bool                    m_func_hasVArgs;
-    int                     m_func_modifier_bits;
+	StringVector			m_mod_strings;
+	StringVector			m_mod2_strings;
+	StringVector			m_mod3_strings;
+	StringVector			m_mod4_strings;
+	std::string				m_throw_string;
 
     ClassBaseTypeDefVector  m_classBaseTypeDefs;
     //TypeDefVector           m_classTypeDefList; // class instances stored here. func instances stored in m_children
@@ -813,7 +907,9 @@ protected:
     int                     m_score; // for specialized template only
 
     SymbolDefObject         m_instanced_class; // for root class template only.
+	StringVector			m_func_base_init_sv;
     StringVector            m_body_sv;
+	std::vector<SourceTreeNode*>	m_var_array_node_list;
 };
 
 class CStatement : public CScope
@@ -870,9 +966,10 @@ protected:
 	void analyzeDeclVar(SourceTreeNode* pChildNode, SourceTreeVector& var_v);
 
 public:
+	// pound_line: line: m_asm_string
 	// def_pre_decl, typedef func, typedef func ptr: m_pTypeDef
 	// using_namespace: m_pGrammarObj, m_asm_string, m_bFlag
-	// typedef, data: m_typedefType, m_pTypeDef, m_pDeclVarNode
+	// typedef, data: m_typedefType, m_pTypeDef, m_declVarList
 	// typedef, func, functype: m_typedefType, m_pTypeDef
 	// typedef, typeof: m_typedefType, m_pTypeDef, m_pExpr, m_name;
 	// var def: m_modifier_bits, m_pTypeDef, m_attribute_list, m_var_list,
@@ -881,7 +978,7 @@ public:
 	// template_func, template_class: m_pTemplate, m_bFlag: decl(0) or define(1)
 	// template_var:    m_pTypeDef
 	// extern template class: m_bFlag: bClass, class: m_pTypeDef, func: m_pFuncDeclare
-    // extern template func: m_pDeclVarNode
+    // extern template func: m_declVarList(only 1)
 	// class cam: m_modifier_bits: cam_type
     // class friend: m_modifier_bits: csu_type, m_pTypeDef
 	StatementType	    m_statement_type;
@@ -893,10 +990,11 @@ public:
 	std::vector<CVarDef*>	m_var_list;
 	// for def statement, m_pSourceNode copies the whole line except var_def which only copies type;
 	TypeDefType         m_typedefType;
-	SourceTreeNode*	    m_pDeclVarNode;
+	SourceTreeVector    m_declVarList;
 	TypeDefPointer      m_pTypeDef;
 	CFuncDeclare*       m_pFuncDeclare;
-	int	                m_modifier_bits;
+	//int	                m_modifier_bits;
+	StringVector		m_mod_strings;
 	CTemplate*          m_pTemplate;
 	CScope*             m_pGrammarObj;
 	CExpr*              m_pExpr; // only used in typedef typeof
@@ -911,7 +1009,7 @@ public:
 
 	SourceTreeVector    m_attribute_list;
 	std::string         m_asm_string;
-	bool                m_bThrow;
+	//int                 m_bThrow;
 
 	StringVector        m_templateTokens;
 };
@@ -937,7 +1035,7 @@ public:
     void addParamVar(CVarDef* pVarDef) { return m_funcParams.push_back(pVarDef); }
 	//FuncParam getParamDisplayInfo(int idx) { return m_displayFuncParams[idx]; }
 
-    virtual SymbolDefObject* findSymbol(const std::string& name, FindSymbolMode mode);
+    virtual SymbolDefObject* findSymbol(const std::string& name, FindSymbolScope scope, FindSymbolMode mode = FIND_SYMBOL_MODE_ANY);
 
 	virtual std::string toString(int depth);
 
@@ -981,7 +1079,7 @@ public:
 	void analyze(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTreeNode* pRoot);
 	void analyzeFuncDef(const SourceTreeNode* pRoot);
 
-	virtual SymbolDefObject* findSymbol(const std::string& name, FindSymbolMode mode);
+	virtual SymbolDefObject* findSymbol(const std::string& name, FindSymbolScope scope, FindSymbolMode mode = FIND_SYMBOL_MODE_ANY);
 
 protected:
 	bool		m_bNamespace;
@@ -1008,6 +1106,8 @@ void extendedTypeReplaceTypeNameIfAny(SourceTreeNode* pRoot, const std::map<std:
 std::string getRelativePath(CScope* pTarget, const std::string& name = "");
 int comparableWith(TypeDefPointer pFirstTypeDef, TypeDefPointer pSecondTypeDef);
 TypeDefPointer createTypeByDepth(TypeDefPointer pTypeDef, int depth);
+void checkBestMatchedFunc(const std::vector<CGrammarObject*>& list, const std::vector<TypeDefPointer>& param_v, bool bCallerIsConst, int& minUnmatchCount, std::vector<CGrammarObject*>& matched_v);
+bool isSameFuncType(TypeDefPointer pType1, TypeDefPointer pType2);
 
 void semanticInit();
 CNamespace* semanticAnalyzeFile(char* file_name, int argc, char* argv[]);

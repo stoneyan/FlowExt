@@ -1,5 +1,11 @@
 #include "lex.h"
 #include <stdlib.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <sys/time.h>
+#endif
+#include <time.h>
 
 int g_tab_spaces = 4;
 bool g_log_lex = false;
@@ -7,6 +13,35 @@ const std::string LEXER_PARAM_EMPTY = "_P1P1P_";
 const std::string LEXER_PARAM_COMMA = "_P1P1P_COMMA";
 
 #define TRACE  if (g_log_lex) printf
+
+typedef unsigned long long uint64_t;
+
+uint64_t get_cur_tick()
+{
+	uint64_t sec, msec;
+#ifdef _WIN32
+	sec = time(NULL);
+	SYSTEMTIME systime;
+	GetLocalTime(&systime);
+	msec = systime.wMilliseconds;
+#else
+	struct timeval tval;
+	gettimeofday(&tval, NULL);
+	sec = tval.tv_sec;
+	msec = tval.tv_usec / 1000;
+#endif
+	return sec * 1000 + msec;
+}
+
+char* cur_time()
+{
+	static char time_buf[100];
+	uint64_t cur_tick = get_cur_tick();
+	time_t tsec = (time_t)(cur_tick / 1000);
+	tm *tp1 = localtime(&tsec);
+	sprintf(time_buf, "%4d-%02d-%02d %02d:%02d:%02d.%03d", tp1->tm_year+1900, tp1->tm_mon+1, tp1->tm_mday, tp1->tm_hour, tp1->tm_min, tp1->tm_sec, cur_tick % 1000);
+	return time_buf;
+}
 
 void fatal_error(const char* format, ...)
 {
@@ -79,6 +114,7 @@ StringVector str_explode(const std::string& str, const std::string& delim)
     return ret_v;
 }
 
+
 bool file_exists(const char* fname)
 {
     FILE* fp = fopen(fname, "rb");
@@ -91,12 +127,29 @@ bool file_exists(const char* fname)
     return false;
 }
 
+FILE* g_fp = NULL;
+
+void write_log(const char* format, ...)
+{
+	if (!g_fp)
+		g_fp = fopen("./tmp.log", "wt");
+
+    va_list argList;
+    va_start(argList, format);
+    //vfprintf(g_fp, format, argList);
+    vprintf(format, argList);
+
+	va_end(argList);
+	//fflush(g_fp);
+}
+
 CLexer::CLexer()
 {
     m_bFileMode = true;
     m_file_line_no = 0;
     m_callback = NULL;
     m_callback_context = NULL;
+	m_token_offset = 0;
 }
 
 CLexer::~CLexer()
@@ -452,7 +505,7 @@ bool CLexer::is_empty()
         return (m_file_list.size() == 1 && m_file_list[0].extra_data.empty() && !*m_file_list[0].content_cur);
     }
 
-    return m_tokens.empty();
+    return m_token_offset >= m_tokens.size();
 }
 
 bool CLexer::isSymbol(char c)
@@ -1983,11 +2036,15 @@ std::string CLexer::read_word(bool bFromExternal)
 {
     if (!m_bFileMode)
     {
-        if (m_tokens.empty())
+        if (m_token_offset >= m_tokens.size())
             return "";
 
-        std::string s = m_tokens.front();
-        m_tokens.erase(m_tokens.begin());
+        std::string s = m_tokens[m_token_offset++];
+		if (m_token_offset >= m_tokens.size())
+		{
+			m_tokens.clear();
+			m_token_offset = 0;
+		}
         //printf("read word <%s>\n", s.c_str());
 
         if (isCommentWord(s))
@@ -2023,6 +2080,12 @@ std::string CLexer::read_word(bool bFromExternal)
         }
         return s;
     }
+
+	if (m_token_offset < m_tokens.size()) // only for token after '#'
+	{
+        std::string s = m_tokens[m_token_offset++];
+		return s;
+	}
 
     int file_stack_size = m_file_list.size();
     int last_row = (m_file_list.size() > 0 ? m_file_list.back().row : -1);
@@ -2405,14 +2468,16 @@ std::string CLexer::read_word(bool bFromExternal)
         else if (s == "pragma")
         {
             std::vector<std::string> keywords;
+			std::string whole_line = s;
             while (true)
             {
                 s = read_word2(false);
                 if (s.empty())
                     break;
                 keywords.push_back(s);
+				whole_line += " " + s;
             }
-            MY_ASSERT(keywords.size() > 0);
+            /*MY_ASSERT(keywords.size() > 0);
             s = keywords[0];
             if (s == "GCC")
             {
@@ -2428,18 +2493,34 @@ std::string CLexer::read_word(bool bFromExternal)
                 MY_ASSERT(!m_file_list.back().file_name.empty());
                 m_pragma_once_files.insert(m_file_list.back().file_name);
             }
+            else if (s == "pack" || s == "warning" || s == "comment")
+			{
+				while (true)
+				{
+					s = read_word2(false);
+					if (s.empty())
+						break;
+				}
+			}
             else
-                fatal_error("unknown pragma directive <%s> in %s:%d", s.c_str(), sf.file_name.c_str(), sf.row);
+                fatal_error("unknown pragma directive <%s> in %s:%d", s.c_str(), sf.file_name.c_str(), sf.row);*/
+
+			m_tokens.push_back(whole_line);
+			return "#";
         }
         else
         {
-        	MY_ASSERT(isNumber(s));
+        	MY_ASSERT(s == "line" || isNumber(s));
+			std::string whole_line = s;
             while (true)
             {
                 s = read_word2(false);
                 if (s.empty())
                     break;
+				whole_line += " " + s;
             }
+			m_tokens.push_back(whole_line);
+			return "#";
             //fatal_error("unknown directive <%s> in %s:%d", s.c_str(), sf.file_name.c_str(), sf.row);
         }
     }
@@ -2493,10 +2574,10 @@ void CLexer::startWithTokens(const StringVector& tokens)
     MY_ASSERT(tokens.size() >= 1);
     MY_ASSERT(isCommentWord(tokens[0]));
     m_tokens = tokens;
+	m_token_offset = 0;
 
-    std::string s = m_tokens[0];
+    std::string s = m_tokens[m_token_offset++];
     string_2_file_stack(s, m_file_stack, m_file_line_no);
-    m_tokens.erase(m_tokens.begin());
 
     MY_ASSERT(m_file_stack.size() > 0);
 }

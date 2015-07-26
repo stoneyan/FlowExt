@@ -20,6 +20,8 @@ typedef std::set<std::string> StringSet;
 void fatal_error(const char* format, ...);
 char* ltoa(long v);
 StringVector str_explode(const std::string& str, const std::string& delim);
+void write_log(const char* fmt, ...);
+char* cur_time();
 
 #define LEXER_CALLBACK_MODE_GET_FUNCTION    1
 
@@ -91,6 +93,7 @@ protected:
 
     // read from tokens
     StringVector    		m_tokens;
+	int						m_token_offset;
     StringVector			m_file_stack;
     int						m_file_line_no;
 

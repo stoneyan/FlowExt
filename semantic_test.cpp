@@ -1,14 +1,24 @@
 #include <stdio.h>
+#ifdef WIN32
+#include "dirent.h"
+#else
 #include <dirent.h>
+#endif
 #include "semantic.h"
 
 void AnalyzeFile(char* file_name, int argc, char* argv[])
 {
     //FILE* wfp = fopen("output.cpp", "w");
 
+	try {
 	CNamespace* pNamespace = semanticAnalyzeFile(file_name, argc, argv);
 	std::string ret_s = pNamespace->toString(0);
 	printf("%s\n", ret_s.c_str());
+	}
+	catch (std::string& s)
+	{
+		printf("analyzeFile failed, err=%s\n", s.c_str());
+	}
 }
 
 int main(int argc, char* argv[])
