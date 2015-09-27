@@ -2,9 +2,7 @@
 #define __SEMANTIC__H_
 
 #include "grammar.h"
-//#include <boost/optional.hpp>
 #include <boost/shared_ptr.hpp>
-//#include <boost/unordered_map.hpp>
 #include <boost/enable_shared_from_this.hpp>
 
 struct SymbolDefObject;
@@ -18,11 +16,39 @@ class CClassDef;
 class CTemplate;
 class CFunction;
 class CNamespace;
+//typedef boost::shared_ptr<CTypeDef>	TypeDefPointer;
+class TypeDefPointer;
+
+class TypeDefPointer
+{
+public:
+	TypeDefPointer(CTypeDef* pTypeDef = NULL)
+	{
+		m_pTypeDef = pTypeDef;
+	}
+
+	CTypeDef* operator ->() const
+	{
+		return m_pTypeDef;
+	}
+
+	operator bool() const
+	{
+		return m_pTypeDef != NULL;
+	}
+
+	CTypeDef* get() const
+	{
+		return m_pTypeDef;
+	}
+
+protected:
+	CTypeDef*	m_pTypeDef;
+};
 
 typedef std::vector<std::string>	StandardType;
-typedef boost::shared_ptr<CTypeDef>	TypeDefPointer;
-typedef std::vector<CExpr*>			ExprVector;
 typedef std::vector<CScope*>        ScopeVector;
+typedef std::vector<CExpr*>			ExprVector;
 
 enum FlowType
 {
@@ -111,7 +137,7 @@ protected:
     int             m_line_no;
 };
 
-class CTypeDef : public boost::enable_shared_from_this<CTypeDef>, public CGrammarObject
+class CTypeDef : /*public boost::enable_shared_from_this<CTypeDef>, */public CGrammarObject
 {
 public:
 	// basic data type
@@ -145,7 +171,7 @@ public:
 	void setType(SemanticDataType newType) { m_type = newType; }
 	//int getModifierBits() { return m_modifier_bits; }
 	bool isBaseType() { return !m_pBaseTypeDef; }
-	TypeDefPointer getBaseType() { return m_pBaseTypeDef ? m_pBaseTypeDef : shared_from_this(); }
+	TypeDefPointer getBaseType() { return m_pBaseTypeDef ? m_pBaseTypeDef : m_shared_from_this; }
     CClassDef* getClassDef() { return (CClassDef*)m_pSpecialType; }
     CTemplate* getTemplate() { return (CTemplate*)m_pSpecialType; }
 	int getDepth() { return m_depth; }
@@ -167,13 +193,16 @@ public:
 	//void setDeclspecStrings(const std::string& declspec_strings) { m_func_declspec_strings = declspec_strings; }
 
 	TypeDefPointer getFuncReturnType() { return m_pFuncReturnType; }
+	void setFuncReturnType(TypeDefPointer pTypeDef) { m_pFuncReturnType = pTypeDef; m_pFuncReturnTypeNode = NULL; }
 	void addFuncParam(CVarDef* pParam);
 	int getFuncParamCount() { return m_func_params.size(); } // vargs doesn't count in param count
 	CVarDef* getFuncParamAt(int i);
 	bool hasVArgs() { return m_bHasVArgs; }
 	void setHasVArgs(bool bHasVArgs = true) { m_bHasVArgs = bHasVArgs; }
+	void clearAllFuncParams() { m_func_params.clear(); m_bHasVArgs = false; }
 	bool isFuncFlow() { return getFuncFlowType() != FLOW_TYPE_NONE; }
 	FlowType getFuncFlowType();
+	void setFuncFlowType(FlowType flow);
 	bool isPureVirtual() { return m_bPureVirtual; }
     void setPureVirtual(bool bPureVirtual) { m_bPureVirtual = bPureVirtual; }
     int getFuncThrow() { return m_nFuncThrow; }
@@ -214,6 +243,7 @@ protected:
 	//CScope* m_pScope;
 	//std::string 	m_name;
 
+	TypeDefPointer	m_shared_from_this;
 	SemanticDataType 	m_type;
 	TypeDefPointer	m_pBaseTypeDef;
 	StandardType 	m_basic_tokens;
@@ -276,8 +306,10 @@ class CVarDef : public CGrammarObject
 {
 public:
 	// we need pDeclVar here because we might need to support cases like "int a[m][n]";
-	CVarDef(CScope* pParent, const std::string& name, TypeDefPointer pTypeDef, SourceTreeNode* pDeclVar = NULL, CExpr* pInitExpr = NULL);
-    CVarDef(CScope* pParent, const std::string& name, TypeDefPointer pTypeDef, const ExprVector& constructorParamList);
+	CVarDef(CScope* pParent, const std::string& name, TypeDefPointer pBaseType, SourceTreeNode* pDeclVar = NULL, CExpr* pInitExpr = NULL);
+	CVarDef(CScope* pParent, const TokenWithNamespace& name, TypeDefPointer pBaseType, SourceTreeNode* pDeclVar = NULL, CExpr* pInitExpr = NULL);
+    CVarDef(CScope* pParent, const std::string& name, TypeDefPointer pBaseType, const ExprVector& constructorParamList);
+    CVarDef(CScope* pParent, const TokenWithNamespace& name, TypeDefPointer pBaseType, const ExprVector& constructorParamList);
 	virtual ~CVarDef();
 
 	//virtual std::string getName() { return m_name; }
@@ -292,8 +324,21 @@ public:
 
 	bool isFlow();
 
-	bool isReference() { return declVarIsReference(m_pDeclVar); }
-	void setReference() { declVarSetReference(m_pDeclVar); }
+	bool isReference() { return m_pDeclVar ? declVarIsReference(m_pDeclVar) : false; }
+	void setReference(bool b = true) {
+		if (b)
+		{
+			if (!m_pDeclVar)
+				m_pDeclVar = declVarCreateByName("");
+			declVarAddModifier(m_pDeclVar, DVMOD_TYPE_REFERENCE);
+			if (declVarGetDepth(m_pDeclVar) > declVarGetPointerCount(m_pDeclVar))
+			declVarAddModifier(m_pDeclVar, DVMOD_TYPE_PARENTHESIS);
+		}
+		else
+		{
+			declVarRemoveModifier(m_pDeclVar, DVMOD_TYPE_REFERENCE);
+		}
+	}
 
 	void setRestrict(bool bRestrict = true) { m_bRestrict = bRestrict; }
 	bool isRestrict() { return m_bRestrict; }
@@ -306,7 +351,7 @@ public:
 	// no need to care about deleting old one
 	void setInitExpr(CExpr* pExpr) { m_pInitExpr = pExpr; }
 	void addExprInDeclVar(CExpr* pExpr) { m_exprList.push_back(pExpr); }
-	ExprVector getExprListInDeclVar() { return m_exprList; }
+	const ExprVector& getExprListInDeclVar() { return m_exprList; }
 
 	virtual std::string toString(bool bDumpInitExpr = true);
 
@@ -314,13 +359,25 @@ public:
 	void setValue(int nValue);
 	int getValue() { MY_ASSERT(m_bHasValue); return m_nValue; }
 
+	int getSeqNo() { return m_seq_no; }
+	void setSeqNo(int seq) { m_seq_no = seq; }
+
+	bool getAppFlag() { return m_app_flag; }
+	void setAppFlag(bool b = true) { m_app_flag = b; }
+
 	// change this var and all statements that use ref it. this var cannot be a global var or defined in function parameters. must be a local var.
-	void changeName(const std::string& new_name);
+	void changeName(const std::string& new_name, CExpr* pNewExpr);
+	virtual void setName(const std::string& new_name)
+	{
+		m_twn.resize(0);
+		m_twn.addScope(new_name);
+		m_name = new_name;
+	}
 
 protected:
 	//CScope* m_pParent;
 
-	//std::string 	m_name;
+	TokenWithNamespace 	m_twn;
 	TypeDefPointer	m_type;
 	bool            m_bHasConstructor;
 	SourceTreeNode*	m_pDeclVar;
@@ -332,6 +389,9 @@ protected:
 	bool 			m_bRestrict;
     bool            m_bHasValue;
     int             m_nValue;
+
+	int				m_seq_no; // needed by parser
+	bool			m_app_flag;
 };
 
 class CUsingObject : public CGrammarObject
@@ -372,21 +432,16 @@ struct SymbolDefObject {
 
 	CGrammarObject* findChildByType(GrammarObjectType t)
 	{
-		BOOST_FOREACH(CGrammarObject* pObj, children)
+		for (size_t i = 0; i < children.size(); i++)
 		{
+			CGrammarObject* pObj = children[i];
 			if (pObj->getGoType() == t)
 				return pObj;
-			/*if (pObj->getGoType() == GO_TYPE_USING_OBJECTS)
-			{
-				CVarDef* pVarDef = ((CUsingObject*)pObj)->getSymbolObj()->getVarDef();
-				if (pVarDef)
-					return pVarDef;
-			}*/
 		}
 		return NULL;
 	}
 
-    CTemplate* getTemplateAt(int i = 0)
+    CTemplate* getTemplateAt(unsigned i = 0)
     {
         MY_ASSERT(type == GO_TYPE_TEMPLATE);
         MY_ASSERT(i >= 0 && i < children.size());
@@ -409,7 +464,7 @@ struct SymbolDefObject {
         MY_ASSERT(((CUsingObject*)pObj)->getSymbolObj()->children.size() == 1);
         return ((CUsingObject*)pObj)->getSymbolObj()->getNamespace();
     }
-    CFuncDeclare* getFuncDeclareAt(int i)
+    CFuncDeclare* getFuncDeclareAt(unsigned i)
     {
         MY_ASSERT(type == GO_TYPE_FUNC_DECL);
         MY_ASSERT(i >= 0 && i < children.size());
@@ -419,8 +474,9 @@ struct SymbolDefObject {
     {
         //MY_ASSERT(type == GO_TYPE_VAR_DEF);
         //MY_ASSERT(children.size() == 1);
-		BOOST_FOREACH(CGrammarObject* pObj, children)
+		for (size_t i = 0; i < children.size(); i++)
 		{
+			CGrammarObject* pObj = children[i];
 			if (pObj->getGoType() == GO_TYPE_VAR_DEF)
 				return (CVarDef*)pObj;
 			if (pObj->getGoType() == GO_TYPE_USING_OBJECTS)
@@ -487,8 +543,9 @@ public:
 	virtual ~CScope()
 	{
 		//printf("destruction %lx\n", this);
-		BOOST_FOREACH(CScope* pObj, m_children)
+		for (size_t i = 0; i < m_children.size(); i++)
 		{
+			CScope* pObj = m_children[i];
 			//printf("deleting %lx, {%s}\n", pObj, pObj->toString(2).c_str());
 			delete pObj;
 		}
@@ -518,8 +575,9 @@ public:
 	}
 	void insertChildrenAt(int idx, const std::vector<CScope*> vec)
 	{
-		BOOST_FOREACH(CScope* pObj, vec)
+		for (size_t i = 0; i < vec.size(); i++)
 		{
+			CScope* pObj = vec[i];
 			pObj->setParent(this);
 			m_children.insert(m_children.begin() + idx, pObj);
 			idx++;
@@ -540,12 +598,14 @@ public:
 	void addFuncDeclare(CFuncDeclare* pFuncDecl);
 	void addTypeDef(TypeDefPointer pDef);
 	void addVarDef(CVarDef* pVar);
+	void removeVarDef(CVarDef* pVar);
 	void addEnumDef(const std::string& name, CClassDef* pClassDef, int nValue);
     void addTemplate(CTemplate* pTemplate);
     void addUsingObjects(const std::string& name, SymbolDefObject* pObj);
 	virtual SymbolDefObject* findSymbol(const std::string& name, FindSymbolScope scope, FindSymbolMode mode = FIND_SYMBOL_MODE_ANY);
 	CFuncDeclare* findFuncDeclare(SymbolDefObject* pDefObj, int paramCount = -1);
 	CFuncDeclare* findFuncDeclare(SymbolDefObject* pDefObj, TypeDefPointer pTypeDef = TypeDefPointer());
+	CFuncDeclare* findFuncDeclare(const std::string& name, const ExprVector& param_list, bool bCallerIsConst = false);
 	//TypeDefPointer findTypeDef(const std::string& name);
 	//CVarDef* findVarDef(const std::string& name, bool bCheckParent = true);
 	//bool findEnumDef(const std::string& name);
@@ -594,14 +654,17 @@ public:
 	CExpr(CScope* pParent, const SourceTreeNode* pRoot);
 	virtual ~CExpr();
 
-	CExpr(CScope* pParent, ExprType expr_type, const std::string val);
+	CExpr(CScope* pParent, ExprType expr_type, const std::string& val);
+	CExpr(CScope* pParent, ExprType expr_type, const TokenWithNamespace& twn);
     CExpr(CScope* pParent, ExprType expr_type, TypeDefPointer pTypeDef);
-	CExpr(CScope* pParent, ExprType expr_type, CExpr* pLeft, const std::string token);
+	CExpr(CScope* pParent, ExprType expr_type, CExpr* pLeft, const std::string& token);
+	CExpr(CScope* pParent, ExprType expr_type, CExpr* pLeft, const TokenWithNamespace& token);
 	CExpr(CScope* pParent, ExprType expr_type, CExpr* pLeft, CExpr* pRight);
 	CExpr(CScope* pParent, ExprType expr_type, CExpr* pExpr);
-	CExpr(CScope* pParent, ExprType expr_type, TypeDefPointer pTypeDef, CExpr* pLeft);
-    CExpr(CScope* pParent, ExprType expr_type, CFuncDeclare* pFuncDeclare, const ScopeVector& param_list);
-    CExpr(CScope* pParent, ExprType expr_type, CExpr* pExpr, const ScopeVector& param_list);
+	CExpr(CScope* pParent, ExprType expr_type, TypeDefPointer pTypeDef, CExpr* pLeft); // type cast
+    CExpr(CScope* pParent, ExprType expr_type, CFuncDeclare* pFuncDeclare, const std::vector<CExpr*>& param_list); // func call
+    CExpr(CScope* pParent, ExprType expr_type, CExpr* pExpr, const std::vector<CExpr*>& param_list);
+	CExpr(CScope* pParent, ExprType expr_type, CExpr* pCondExpr, CExpr* pExpr1, CExpr* pExpr2);
 
     virtual std::string getDebugName();
     virtual GrammarObjectType getGoType() { return GO_TYPE_EXPR; }
@@ -614,19 +677,26 @@ public:
     virtual SymbolDefObject* getReturnSymbolObj() { return m_return_symbol_obj; }
     virtual void setReturnSymbolObj(SymbolDefObject* obj) { m_return_symbol_obj = obj; }
 	virtual bool isFlow() { return m_bFlow; }
-	//virtual void setFlow(bool bFlow) { m_bFlow = bFlow; }
+	virtual void setFlow(bool bFlow) { m_bFlow = bFlow; }
 	//SourceTreeNode*	getSourceTreeNode() { return m_pNode; }
 	//void setSourceTreeNode(const SourceTreeNode* pRoot);
 	std::string getValue() { return m_value; }
-	CFuncDeclare* getFuncDeclare() { return m_pFuncDeclare; }
+	void setValue(const std::string& s) { m_value = s; }
+	TokenWithNamespace getTWN() { return m_token_with_namespace; }
+	void setTWN(const TokenWithNamespace& twn) { m_token_with_namespace = twn; }
+	TypeDefPointer getFuncCallType() { return m_pFuncCallType; }
+	void setFuncCallType(TypeDefPointer pTypeDef) { m_pFuncCallType = pTypeDef; }
+    CFuncDeclare* getFuncDeclare() { return m_pFuncDeclare; }
     void setFuncDeclare(CFuncDeclare* pFuncDeclare) { m_pFuncDeclare = pFuncDeclare; }
 
 	virtual void analyze(const SourceTreeNode* pRoot);
 	virtual std::string toString(int depth = 0);
 
-	virtual void changeRefVarName(const std::string& old_name, const std::string& new_name);
+	virtual void changeRefVarName(const std::string& old_name, CExpr* pNewExpr);
 
 	virtual bool calculateNumValue(float& f);
+
+	static CExpr* copyExpr(CExpr*);
 
 protected:
 	void init();
@@ -638,7 +708,8 @@ protected:
 	SymbolDefObject*  m_return_symbol_obj; // this is only intermediate variable after analyzing name but before analyzing func parameters
 	bool            m_caller_is_const; // only valid when m_return_symbol_obj is to be used. to determine which func to choose
 
-	// func call, first obj is funcExpr, remainder are paramExpr
+	// func call type
+	TypeDefPointer	m_pFuncCallType;
 	CFuncDeclare*	m_pFuncDeclare;
 
 	// const_value, ref_element, ptr_element
@@ -673,7 +744,6 @@ public:
     virtual std::string toString(int depth = 0);
 
     void addExpr(CExpr* pExpr);
-	virtual void changeRefVarName(const std::string& old_name, const std::string& new_name);
     virtual bool calculateNumValue(float& f);
 };
 
@@ -708,6 +778,11 @@ public:
 
     bool hasBaseClass(CClassDef* pClassDef);
     bool hasConstructorOrCanBeAssignedWith(TypeDefPointer pTypeDef);
+
+	void addBaseClass(CClassDef* pClassDef, ClassAccessModifierType cam_type = CAM_TYPE_PUBLIC, bool bVirtual = false);
+
+	// if it's a class or struct who has a constructor or has a member who has a constructor
+	bool has_constructor();
 
     bool is_abstract();
     bool is_empty(); // don't have constructor or destructor, don't have protected, private or vitural method
@@ -923,7 +998,7 @@ public:
     CStatement(CScope* pParent, DefType defType, CSUType csu_type, TypeDefPointer pTypeDef);
 	CStatement(CScope* pParent, StatementType type, TypeDefPointer pTypeDef);
 	CStatement(CScope* pParent, StatementType type, CVarDef* pVar, SourceTreeNode* pTypeNode = NULL); // def
-	CStatement(CScope* pParent, StatementType type, CExpr* pExpr, CStatement* pStatement); // if
+	CStatement(CScope* pParent, StatementType type, CExpr* pExpr, CStatement* pStatement); // if or while
 	CStatement(CScope* pParent, StatementType type, const std::vector<CScope*>& vec); // compound
 	virtual ~CStatement();
 
@@ -933,12 +1008,20 @@ public:
     void setStatementType(StatementType newType) { m_statement_type = newType; }
 	DefType getDefType() { return m_def_type; }
 	bool isFlow() { return m_bFlow; }
-	//void setFlow(bool bFlow) { m_bFlow = bFlow; }
+	void setFlow(bool bFlow) { m_bFlow = bFlow; }
+	TypeDefPointer getTypeDef() { return m_pTypeDef; }
+	void setTypeDef(TypeDefPointer pTypeDef) { m_pTypeDef = pTypeDef; }
+	CFuncDeclare* getFuncDeclare() { return m_pFuncDeclare; }
+	void setFuncDeclare(CFuncDeclare* pFuncDeclare) { m_pFuncDeclare = pFuncDeclare; }
+	bool isAppFlagSet() { return m_bAppFlag; }
+	void setAppFlag(bool bSet = true) { m_bAppFlag = bSet; }
 
 	// for var def statement;
 	//std::string getDefTypeString() { return displaySourceTreeType(m_pSourceNode); }
 	int getVarCount() { return m_var_list.size(); }
 	CVarDef* getVarAt(int idx) { return m_var_list[idx]; }
+	void removeVarAt(int idx) { m_var_list.erase(m_var_list.begin() + idx); }
+	void removeAllVars() { m_var_list.clear(); }
 	//SourceTreeNode*	getTypeSourceNode() { return m_pSourceNode; }
 
 	void analyze(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTreeNode* pRoot);
@@ -949,10 +1032,11 @@ public:
 	// this statement is a def var type and contains this var, change the name in its source node tree.
 	void changeDefVarName(const std::string& old_name, const std::string& new_name);
 	// need to change ref of a var with old_name in this statement and its children to new_name
-	bool changeRefVarName(const std::string& old_name, const std::string& new_name);
+	bool changeRefVarName(const std::string& old_name, CExpr* pNewExpr);
 
-	void addElseIf(CExpr* pExpr, CStatement* pStatement);
-	void addElseStatement(CStatement* pStatement);
+	void setElseStatement(CStatement* pStatement);
+	void addSwitchCase(CExpr* pExpr, const ScopeVector& statement_v);
+	void addSwitchDefault(const ScopeVector& statement_v);
 
 	// for template defs, store tokens of this definition so that it can be instanced later
 	void setTemplateTokens(const StringVector& tokens) { m_templateTokens = tokens; }
@@ -962,6 +1046,7 @@ public:
     ClassAccessModifierType getClassAccessModifierType() { return m_cam_type; }
 
 protected:
+	void init();
 	TypeDefPointer analyzeSuperType(const SourceTreeNode* pSuperTypeNode, bool bAllowUndefinedStruct = false);
 	void analyzeDeclVar(SourceTreeNode* pChildNode, SourceTreeVector& var_v);
 
@@ -983,6 +1068,9 @@ public:
     // class friend: m_modifier_bits: csu_type, m_pTypeDef
 	StatementType	    m_statement_type;
 	bool			    m_bFlow;
+
+	// used in parser
+	bool				m_bAppFlag;
 
 	// def
 	DefType			    m_def_type;
@@ -1030,10 +1118,11 @@ public:
     void setFlowType(FlowType newType) { m_flow_type = newType; }
 	TypeDefPointer getFuncType() { return m_func_type; }
 	void setFuncType(TypeDefPointer pTypeDef) { m_func_type = pTypeDef; }
-	int getParamVarCount() { return m_funcParams.size(); }
-	CVarDef* getParamVarAt(int idx) { return m_funcParams[idx]; }
-    void addParamVar(CVarDef* pVarDef) { return m_funcParams.push_back(pVarDef); }
-	//FuncParam getParamDisplayInfo(int idx) { return m_displayFuncParams[idx]; }
+	//int getParamVarCount() { return m_funcParams.size(); }
+	//CVarDef* getParamVarAt(int idx) { return m_funcParams[idx]; }
+    //void addParamVar(CVarDef* pVarDef) { return m_funcParams.push_back(pVarDef); }
+	CFuncDeclare* getFuncDeclare() { return m_pFuncDeclare; }
+	void setFuncDeclare(CFuncDeclare* pFuncDeclare) { m_pFuncDeclare = pFuncDeclare; }
 
     virtual SymbolDefObject* findSymbol(const std::string& name, FindSymbolScope scope, FindSymbolMode mode = FIND_SYMBOL_MODE_ANY);
 
@@ -1045,7 +1134,7 @@ public:
 public:
 	TypeDefPointer				m_func_type;
 	//TokenWithNamespace          m_display_name;
-	std::vector<CVarDef*>		m_funcParams;
+	//std::vector<CVarDef*>		m_funcParams;
 	//std::vector<FuncParam>		m_displayFuncParams;
 	FlowType					m_flow_type;
 	CFuncDeclare*               m_pFuncDeclare;
@@ -1093,7 +1182,7 @@ protected:
 //bool analyzeDef(const SourceTreeNode* pRoot, TypeDescBlock& type_desc_block, std::vector<CFuncVar*>& var_list);
 
 typedef std::string (*FuncListener)(CScope*, int depth);
-extern TypeDefPointer g_type_def_int, g_type_def_bool, g_type_def_void, g_type_def_void_ptr, g_type_def_func_void;
+extern TypeDefPointer g_type_def_int, g_type_def_unsigned, g_type_def_bool, g_type_def_void, g_type_def_void_ptr, g_type_def_func_void;
 
 CExpr* createNotExpr(CExpr* pExpr);
 void enterNamespace(CNamespace* pNamespace);
@@ -1103,11 +1192,16 @@ std::string getSemanticTypeName(SemanticDataType type);
 SemanticDataType getSemanticTypeFromCSUType(CSUType type);
 std::string getGoTypeName(GrammarObjectType t);
 void extendedTypeReplaceTypeNameIfAny(SourceTreeNode* pRoot, const std::map<std::string, std::string>& dict);
+TokenWithNamespace getRelativeTWN(CScope* pTarget, const std::string& name = "");
 std::string getRelativePath(CScope* pTarget, const std::string& name = "");
 int comparableWith(TypeDefPointer pFirstTypeDef, TypeDefPointer pSecondTypeDef);
 TypeDefPointer createTypeByDepth(TypeDefPointer pTypeDef, int depth);
 void checkBestMatchedFunc(const std::vector<CGrammarObject*>& list, const std::vector<TypeDefPointer>& param_v, bool bCallerIsConst, int& minUnmatchCount, std::vector<CGrammarObject*>& matched_v);
 bool isSameFuncType(TypeDefPointer pType1, TypeDefPointer pType2);
+void enterScope(CScope* pScope);
+void leaveScope();
+// for a pTypeDef, return its base type and depth to the root, depth is added to its original value, so remember to set to 0 if needed
+TypeDefPointer getRootType(TypeDefPointer pTypeDef, int& depth);
 
 void semanticInit();
 CNamespace* semanticAnalyzeFile(char* file_name, int argc, char* argv[]);

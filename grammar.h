@@ -3,7 +3,7 @@
 
 #include "lex.h"
 #include <set>
-#include <boost/unordered_map.hpp>
+#include <map>
 
 /*
 	const				: 'const' | '__const'; \\\n\
@@ -18,6 +18,7 @@
 	basic_type			: 'void' | 'va_list' | '__builtin_va_list' | +[('signed' | 'unsigned' | 'char' | 'short' | 'int' | 'long' | 'float' | 'double' | '__int128' | 'bool' | 'wchar_t' | '__w64' | '__int64')]; \\\n\
 	class_struct_union  : 'union' | 'struct' | 'class' | 'enum' ; \\\n\
 	type				: *[data_type_modifier] ( basic_type | (class_struct_union | 'typename') user_def_type_no_check | user_def_type | '__typeof' '(' twn_nocheck ')' ) *[data_type_modifier] ?[ *[?[const] '*'] ?[const] ?['&'] hard_scope '*'] ;\\\n\
+	type_nocheck		: *[data_type_modifier] ( basic_type | ?[(class_struct_union | 'typename')] user_def_type_no_check ) *[data_type_modifier] ?[ *[?[const] '*'] ?[const] ?['&'] hard_scope '*'] ;\\\n\
 	extended_type		: type *[?[const] '*' ?['__ptr64'] ] *[data_type_modifier] ?['&']; \\\n\
 	extended_type_var   : extended_type *['[' ?[expr] ']']; \\\n\
    extended_or_func_type: extended_type | func_type; \\\n\
@@ -40,7 +41,7 @@
 						| 'friend' ?[class_struct_union] user_def_type ^O ';' \\\n\
 						| defs \\\n\
 						; \\\n\
-	base_class_defs		: +[ ?['virtual'] ?[class_access_modifier] ?['virtual'] user_def_type, ','] ; \\\n\
+	base_class_defs		: +[ ?['virtual'] ?[class_access_modifier] ?['virtual'] user_def_type, '>,'] ; \\\n\
 	class_def			: ('class' | 'struct') *[common_modifier] scope ?[token] ?[ ':' %[base_class_defs, '{'] ] ^O '{' %[class_def_body, '}'] '}' ; \\\n\
 	super_type			: enum_def | union_def | class_def ; \\\n\
     builtin_type_funcs  : '__alignof__' | '__is_abstract' | '__is_class' | '__is_empty' | '__is_enum' | '__is_pod' | '__has_nothrow_assign' | '__has_nothrow_copy' | '__has_trivial_assign' | '__has_trivial_copy' | '__has_trivial_destructor' ; \\\n\
@@ -65,7 +66,7 @@
 	decl_c_var		    : ?['__restrict'] decl_var ?[ '=' expr] ; \\\n\
 	decl_c_obj_var	    : decl_c_var | decl_obj_var ; \\\n\
     expr_or_decl_var    : expr2 | type +[decl_c_obj_var, ','] ; \\\n\
-	func_param          : type *[func_modifier2] ?[const] ?[ decl_var ?[ '=' %[expr, ',|)'] ] ?[attribute] ] | func_type ;  \\\n\
+	func_param          : type_nocheck *[func_modifier2] ?[const] ?[ decl_var ?[ '=' %[expr, ',|)'] ] ?[attribute] ] | func_type ;  \\\n\
 	func_params         : *[func_param, '>,'] ?[('...' | ',' '...')] ;  \\\n\
 	func_type           : extended_type ?( ?[ ?( *[func_modifier2] scope +['*'] ?[token] ) ] '(' func_params ')' *[data_type_modifier] ) ; \\\n\
 	func_header         : *[func_modifier] ?[extended_type] *[func_modifier2] ?( ?( *[func_modifier2] scope ( ?['~'] token | 'operator' operator) ?['<' *[(extended_type_var|func_type|expr), ','] '>'] ) '(' %[func_params, ')'] ')' ) *[data_type_modifier] ?['throw' '(' ?[(type | '...')] ')'] ; \\\n\
@@ -94,25 +95,28 @@
 						| *[member_modifier] super_type extra_block \\\n\
 						| func_header ?['__asm' '(' const_value ')'] *[attribute] (?['=' '0'] ^O ';' | ?[ ':' %[class_base_inits, '{'] ] ^O '{' %[statement, '}'] '}') \\\n\
 						| *[member_modifier] func_type *['[' expr ']'] ^O ';' \\\n\
-						| ?[ext_modifier] +['template' < %[template_type_defs] > ] extra_block \\\n\
+						| ?[ext_modifier] +['template' < %[template_type_defs] > ] ( ^O class_struct_union extra_block2 | extra_block ) \\\n\
                         | ext_modifier 'template' (('class' | 'struct') user_def_type | func_header ) ';' \\\n\
 						| ext_modifier 'template' extended_type scope token < *[(extended_type_var | func_type | expr), '>,'] > '(' %[func_params, ')'] ')' ?[const] ';' \\\n\
 						; \\\n\
 	def_var_tail        : *[decl_c_obj_var, ','] ?[attribute] ?['__asm' '(' const_value ')'] ';' ; \\\n\
 	switch_body			: 'case' const_value ':' *[statement] | 'default' ':' *[statement] ; \\\n\
+	else_statement		: 'else' statement ;\\\n\
+	catch_statement		: 'catch' '(' func_params ')' statement ; \\\n\
+   flow_catch_statement : 'flow_catch' '(' expr ',' expr ')' statement ; \\\n\
 	statement			: ^O 'break' ';'						\\\n\
 						| ^O 'continue' ';'						\\\n\
 						| ^O 'return' ?[expr] ';'			\\\n\
 						| ^O '{' %[statement, '}'] '}'			 \\\n\
-						| ^O 'if' '(' expr_or_decl_var ')' statement \\\n\
-						| ^O 'while' '(' expr_or_decl_var ')' statement \\\n\
+						| ^O 'if' '(' expr ')' statement \\\n\
+						| ^O 'while' '(' expr ')' statement \\\n\
 						| ^O 'do' statement \\\n\
 						| ^O 'for' '(' ?[expr_or_decl_var] ';' ?[expr] ';' expr2 ')' statement	\\\n\
 						| ^O 'switch' '(' expr ')' '{' %[switch_body, '}'] '}' \\\n\
-						| ^O 'try' statement +[ 'catch' '(' func_params ')' statement ] \\\n\
+						| ^O 'try' statement \\\n\
 						| ^O 'flow_wait' '(' expr ',' expr ')' ';' \\\n\
 						| ^O 'flow_fork' statement \\\n\
-						| ^O 'flow_try' statement +[ 'flow_catch' '(' expr ',' expr ')' statement ] \\\n\
+						| ^O 'flow_try' statement \\\n\
 						| ^O '__asm' '{' %[token, '}'] '}' \\\n\
                         | expr2 ';' \\\n\
 						| defs \\\n\
@@ -121,7 +125,6 @@
 						| ?['inline'] ^O 'namespace' ?[token] ?[attribute] '{' %[start, '}'] '}' \\\n\
 						| defs \\\n\
 						; \\\n\
-";
 */
 
 struct SourceTreeNode {
@@ -367,6 +370,7 @@ enum StatementType
 	STATEMENT_TYPE_FLOW_WAIT,
     STATEMENT_TYPE_FLOW_TRY,
 	STATEMENT_TYPE_FLOW_FORK,
+	STATEMENT_TYPE_FLOW_NEW,
 	STATEMENT_TYPE___ASM,
 };
 
@@ -455,7 +459,7 @@ public:
         m_data.back().template_params.push_back(nwt);
     }
 
-    void resize(int depth)
+    void resize(unsigned depth)
     {
         MY_ASSERT(depth <= m_data.size());
 
@@ -477,22 +481,22 @@ public:
     std::string getLastToken() const { return m_data.back().token; }
     void setTokenName(int depth, const std::string& s) { m_data[depth].token = s; }
 
-    bool scopeSpecifiedAsTemplate(int depth) const
+    bool scopeSpecifiedAsTemplate(unsigned depth) const
     {
         MY_ASSERT(depth >= 0 && depth <= m_data.size());
         return m_data.at(depth).bSpecifiedAsTemplate;
     }
-    bool scopeHasTemplate(int depth) const
+    bool scopeHasTemplate(unsigned depth) const
     {
         MY_ASSERT(depth >= 0 && depth <= m_data.size());
         return m_data.at(depth).bHasTemplate;
     }
-    int getTemplateParamCount(int depth) const
+    int getTemplateParamCount(unsigned depth) const
     {
         MY_ASSERT(depth >= 0 && depth <= m_data.size());
         return (int)m_data.at(depth).template_params.size();
     }
-    int getTemplateParamAt(int depth, int idx, SourceTreeNode*& pChild) const // return true means it's a type node
+    int getTemplateParamAt(unsigned depth, unsigned idx, SourceTreeNode*& pChild) const // return true means it's a type node
     {
         MY_ASSERT(depth >= 0 && depth <= m_data.size());
         MY_ASSERT(idx >= 0 && idx < m_data.at(depth).template_params.size());
@@ -500,7 +504,7 @@ public:
         pChild = nwt.pNode;
         return nwt.type;
     }
-    void clearTemplateParams(int depth)
+    void clearTemplateParams(unsigned depth)
     {
         MY_ASSERT(depth >= 0 && depth <= m_data.size());
         m_data[depth].bHasTemplate = false;
@@ -570,6 +574,7 @@ SourceTreeNode* tokenWithNamespaceCreate(const std::string& token);
 SourceTreeNode* tokenWithNamespaceCreate(const TokenWithNamespace& twn);
 
 TokenWithNamespace userDefTypeGetInfo(const SourceTreeNode* pRoot);
+SourceTreeNode* userDefTypeCreateByName(const TokenWithNamespace& twn);
 void userDefTypeChangeTokenName(SourceTreeNode* pRoot, int idx, const std::string& newName);
 
 std::vector<std::string> basicTypeGetInfo(const SourceTreeNode* pRoot);
@@ -648,8 +653,9 @@ struct GrammarFuncHeaderInfo {
 };
 GrammarFuncHeaderInfo funcHeaderGetInfo(const SourceTreeNode* pRoot);
 
-std::string declVarGetName(const SourceTreeNode* pRoot);
+TokenWithNamespace declVarGetName(const SourceTreeNode* pRoot);
 int declVarGetDepth(const SourceTreeNode* pRoot);
+int declVarGetPointerCount(const SourceTreeNode* pRoot);
 std::string declVarGetBitsValue(const SourceTreeNode* pRoot);
 bool declVarIsConst(const SourceTreeNode* pRoot);
 bool declVarIsReference(const SourceTreeNode* pRoot);
@@ -661,8 +667,10 @@ int declVarGetBits(const SourceTreeNode* pRoot); // return -1 if not defined
 SourceTreeVector declVarGetExprs(const SourceTreeNode* pRoot);
 SourceTreeNode* declVarCreateByName(const std::string& new_name);
 void declVarAddModifier(SourceTreeNode* pRoot, DeclVarModifierType mode, SourceTreeNode* pExtNode = NULL);
+void declVarRemoveModifier(SourceTreeNode* pRoot, DeclVarModifierType mode);
+void declVarAddArrayExpr(SourceTreeNode* pRoot, SourceTreeNode* pExprNode);
 void declVarChangeName(SourceTreeNode* pRoot, const std::string& new_name);
-void declVarSetReference(SourceTreeNode* pRoot);
+//void declVarSetReference(SourceTreeNode* pRoot);
 SourceTreeNode* declVarCreateFromExtendedType(const std::string& name, const SourceTreeNode* pRoot);
 
 void declCVarGetInfo(const SourceTreeNode* pRoot, bool& bRestrict, SourceTreeNode*& pVar, SourceTreeNode*& pInitValue); // pVar: decl_var, pInitValue: expr
@@ -677,11 +685,11 @@ SourceTreeNode* exprGetSecondNode(const SourceTreeNode* pRoot);
 std::string exprGetSecondToken(const SourceTreeNode* pRoot);
 SourceTreeNode* exprGetThirdNode(const SourceTreeNode* pRoot);
 SourceTreeNode* exprGetOptionalThirdNode(const SourceTreeNode* pRoot);
-std::string exprGetBuiltinFuncTypeName(const SourceTreeNode* pRoot);
+std::string exprBuiltinFuncGetName(const SourceTreeNode* pRoot);
 void exprSizeOfGetInfo(const SourceTreeNode* pRoot, int& nType, SourceTreeNode*& pChild);
 void exprNewAdvGetParams(const SourceTreeNode* pRoot, SourceTreeNode*& pUserDefType, SourceTreeNode*& pExpr2);
 bool exprDeleteHasArray(const SourceTreeNode* pRoot);
-void exprPtrRefGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pExpr, std::string& token);
+void exprPtrRefGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pExpr, SourceTreeNode*& pScope, std::string& token);
 
 SourceTreeNode* exprCreateConst(ExprType expr_type, const std::string val);
 SourceTreeNode* exprCreateRefOrPtr(SourceTreeNode* pLeft, ExprType expr_type, const std::string token);
@@ -697,7 +705,7 @@ StatementType statementGetType(const SourceTreeNode* pRoot);
 SourceTreeNode* statementExpr2GetNode(const SourceTreeNode* pRoot);
 SourceTreeNode* statementReturnGetExpr(const SourceTreeNode* pRoot);
 void* statementCompoundGetBracketBlock(const SourceTreeNode* pRoot);
-void statementIfGetExprStatement(const SourceTreeNode* pRoot, SourceTreeNode*& pExprOrDeclVar, SourceTreeNode*& pStatement, SourceTreeNode*& pElseStatement);
+void statementIfGetExprStatement(const SourceTreeNode* pRoot, SourceTreeNode*& pExprOrDeclVar, SourceTreeNode*& pStatement);
 void statementWhileGetExprStatement(const SourceTreeNode* pRoot, SourceTreeNode*& pExprOrDeclVar, SourceTreeNode*& pStatement);
 void statementDoGetExprStatement(const SourceTreeNode* pRoot, SourceTreeNode*& pStatement, SourceTreeNode*& pExpr);
 void statementForGetExprStatement(const SourceTreeNode* pRoot, SourceTreeNode*& pExpr1, SourceTreeNode*& pExpr2, SourceTreeNode*& pExpr3, SourceTreeNode*& pStatement);
@@ -706,14 +714,15 @@ int statementSwitchGetNumOfCases(const SourceTreeNode* pRoot);
 SourceTreeVector statementSwitchGetCaseByIndex(const SourceTreeNode* pRoot, int idx, SourceTreeNode*& pExpr);
 SourceTreeVector statementSwitchGetDefult(const SourceTreeNode* pRoot);
 SourceTreeNode* statementTryGetStatement(const SourceTreeNode* pRoot);
-int statementTryGetNumOfCatches(const SourceTreeNode* pRoot);
-void statementTryGetCatchByIndex(const SourceTreeNode* pRoot, int idx, SourceTreeNode*& pFuncParamsNode, SourceTreeNode*& Statement);
+//int statementTryGetNumOfCatches(const SourceTreeNode* pRoot);
+void catchStatementGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pFuncParamsNode, SourceTreeNode*& Statement);
 void statementFlowWaitGetExprs(const SourceTreeNode* pRoot, SourceTreeNode*& pExpr1, SourceTreeNode*& pExpr2);
 //void statementFlowSignalGetExprs(const SourceTreeNode* pRoot, SourceTreeNode*& pExpr1, SourceTreeNode*& pExpr2);
 SourceTreeNode* statementFlowForkGetStatement(const SourceTreeNode* pRoot);
+void statementFlowNewGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pExprNode, SourceTreeNode*& pStatementNode);
 SourceTreeNode* statementFlowTryGetTryStatement(const SourceTreeNode* pRoot);
-int statementFlowTryGetCatchCount(const SourceTreeNode* pRoot);
-SourceTreeNode* statementFlowTryGetCatchAt(const SourceTreeNode* pRoot, int idx, SourceTreeNode*& expr1, SourceTreeNode*& expr2); // return child statement
+//int statementFlowTryGetCatchCount(const SourceTreeNode* pRoot);
+SourceTreeNode* flowCatchStatementGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& expr1, SourceTreeNode*& expr2); // return child statement
 StringVector statementAsmGetInfo(const SourceTreeNode* pRoot);
 SourceTreeNode* statementDefGetNode(const SourceTreeNode* pRoot);
 
@@ -744,7 +753,7 @@ void defVarDefGetInfo(const SourceTreeNode* pRoot, StringVector& mod_strings, So
 void defSuperTypeVarDefGetInfo(const SourceTreeNode* pRoot, StringVector& mod_strings, SourceTreeNode*& pSuperType, void*& bracket_block);
 //void defVarDefChangeVarName(SourceTreeNode* pRoot, const std::string& old_name, const std::string& new_name);
 //SourceTreeNode* defVarDefCreate(SourceTreeNode* pSuperType, SourceTreeNode* pDeclVar, SourceTreeNode* pInitExpr = NULL);
-void defTemplateGetInfo(const SourceTreeNode* pRoot, StringVector& mod_strings, std::vector<void*>& header_types, void*& bracket_block);
+void defTemplateGetInfo(const SourceTreeNode* pRoot, StringVector& mod_strings, std::vector<void*>& header_types, CSUType& csu_type, void*& bracket_block);
 
 SourceTreeVector templateTypeDefsGetList(const SourceTreeNode* pRoot);
 //header_type == 0: data, 1: expr, when header_type==0, pTypeNode is in templateTypeParams
@@ -823,7 +832,7 @@ std::string displaySourceTreeStart(const SourceTreeNode* pRoot, int depth);
 #define SOURCE_NODE_TYPE_SMALL_BRACKET	1000005
 #define SOURCE_NODE_TYPE_BIG_BRACKET	1000006
 
-typedef boost::unordered_map<std::string, int>  GrammarTempDefMap; // int ==1: type, ==2: var
+typedef std::map<std::string, int>  GrammarTempDefMap; // int ==1: type, ==2: var
 typedef bool (*GrammarCheckFunc)(void* context, int mode, const SourceTreeNode* pNode, const GrammarTempDefMap& tempTypeMap);
 
 typedef bool (*GrammarCallback)(void* context, int mode, std::string& s);
@@ -865,7 +874,10 @@ public:
 	void initWithBlocks(void* context, void* param);
     void initWithTokens(void* context, const std::string& grammar, const StringVector& tokens, const std::string& delim = "");
 
-	int findEndOfStatement(int n, int end_n);
+	void pushTokenFront(const std::string& s);
+	std::string nextToken();
+
+	int findEndOfStatement(int n, int end_n, bool bForceSemiColon = false);
 	SourceTreeNode* getBlock(StringVector* pBlockData = NULL, const std::string grammar = "", void* context = NULL);
 	bool isEmpty();
 

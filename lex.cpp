@@ -60,7 +60,10 @@ void fatal_error(const char* format, ...)
 char* ltoa(long v)
 {
     static char buf[30];
-    sprintf(buf, "%ld", v);
+	if (v < 1024 * 1024 && v > -1024 * 1024)
+	    sprintf(buf, "%lu", v);
+	else
+	    sprintf(buf, "0x%lx", v);
     return buf;
 }
 
@@ -564,9 +567,10 @@ StringVector CLexer::get_file_stack()
     if (m_bFileMode)
     {
         StringVector ret_v;
-        BOOST_FOREACH(SourceFile& sf, m_file_list)
-            ret_v.push_back(sf.file_name);
-
+        for (std::vector<SourceFile>::iterator it = m_file_list.begin(); it != m_file_list.end(); it++)
+		{
+            ret_v.push_back(it->file_name);
+		}
         return ret_v;
     }
 
@@ -1001,21 +1005,21 @@ std::string CLexer::handleDefine(const std::string& name, bool bHasParentheses, 
             if (item.params != params)
             {
                 err_s += "prev params={";
-                BOOST_FOREACH(const std::string& s, item.params)
-                    err_s += s + ",";
+                for (size_t i = 0; i < item.params.size(); i++)
+                    err_s += item.params[i] + ",";
                 err_s += "}, new params={";
-                BOOST_FOREACH(const std::string& s, params)
-                    err_s += s + ",";
+                for (size_t i = 0; i < params.size(); i++)
+                    err_s += params[i] + ",";
                 err_s += "} ";
             }
             if (item.value_keywords != keywords)
             {
                 err_s += "prev body={";
-                BOOST_FOREACH(const std::string& s, item.value_keywords)
-                    err_s += s + " ";
+                for (size_t i = 0; i < item.value_keywords.size(); i++)
+                    err_s += item.value_keywords[i] + " ";
                 err_s += "}, new body={";
-                BOOST_FOREACH(const std::string& s, keywords)
-                    err_s += s + " ";
+                for (size_t i = 0; i < keywords.size(); i++)
+                    err_s += keywords[i] + " ";
                 err_s += "} ";
             }
         }
@@ -1527,8 +1531,10 @@ std::string CLexer::transformDirectiveListToTree(const std::vector<std::string>&
         keywords.erase(keywords.begin() + i, keywords.begin() + j);
         j = i;
 
-        BOOST_FOREACH(const std::string& s, item.value_keywords)
+        for (size_t m = 0; m < item.value_keywords.size(); m++)
         {
+			const std::string& s = item.value_keywords[m];
+
             bool bFound = false;
             for (size_t k = 0; k < item.params.size(); k++)
             {
@@ -1954,8 +1960,9 @@ std::string CLexer::expand_with_macro(const DefineItem& item, const std::string&
     }
     // expand a macro
     bool bHasPound = false;
-    BOOST_FOREACH(const std::string& s, item.value_keywords)
+    for (size_t i = 0; i < item.value_keywords.size(); i++)
     {
+		const std::string& s = item.value_keywords[i];
         std::string t = s;
         if (t == "#")
         {
@@ -2273,8 +2280,10 @@ std::string CLexer::read_word(bool bFromExternal)
             {
                 fname = s;
                 bool bFound = false;
-                BOOST_FOREACH(const std::string& path, m_include_path)
+                for (size_t i = 0; i < m_include_path.size(); i++)
                 {
+					const std::string& path = m_include_path[i];
+
                     std::string s = path + "/" + fname;
                     if (file_exists(s.c_str()))
                     {
@@ -2582,19 +2591,25 @@ void CLexer::startWithTokens(const StringVector& tokens)
     MY_ASSERT(m_file_stack.size() > 0);
 }
 
+void CLexer::pushTokenFront(const std::string& s)
+{
+	m_tokens.insert(m_tokens.begin() + m_token_offset, s);
+}
+
 void CLexer::printDefineMap()
 {
     FILE* fp = fopen("defines.map", "wt");
 
-    BOOST_FOREACH(DefineMap::value_type& entry, m_define_map)
+    for (DefineMap::const_iterator it = m_define_map.begin(); it != m_define_map.end(); it++)
     {
-        std::string str = "#define " + entry.first;
-        if (!entry.second.params.empty())
+        std::string str = "#define " + it->first;
+        if (!it->second.params.empty())
         {
             str += "(";
             int n = 0;
-            BOOST_FOREACH(std::string param, entry.second.params)
+            for (size_t i = 0; i < it->second.params.size(); i++)
             {
+				const std::string& param = it->second.params[i];
                 if (n > 0)
                     str += ", ";
                 str += param;
@@ -2603,8 +2618,9 @@ void CLexer::printDefineMap()
             str += ")";
         }
         str += "    ";
-        BOOST_FOREACH(std::string s, entry.second.value_keywords)
+        for (size_t i = 0; i < it->second.value_keywords.size(); i++)
         {
+			const std::string& s = it->second.value_keywords[i];
             str += s + " ";
         }
         fprintf(fp, "%s\n", str.c_str());

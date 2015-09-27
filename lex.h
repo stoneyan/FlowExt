@@ -11,7 +11,6 @@
 #include <vector>
 #include <set>
 #include <map>
-#include <boost/foreach.hpp>
 
 typedef std::vector<std::string> StringVector;
 typedef std::set<std::string> StringSet;
@@ -22,6 +21,7 @@ char* ltoa(long v);
 StringVector str_explode(const std::string& str, const std::string& delim);
 void write_log(const char* fmt, ...);
 char* cur_time();
+std::string trim(const std::string &s);
 
 #define LEXER_CALLBACK_MODE_GET_FUNCTION    1
 
@@ -38,6 +38,8 @@ public:
     void startWithFile(const char* file_name);
     void startWithBuffer(const char* file_name, const char* buf);
     void startWithTokens(const StringVector& tokens);
+
+	void pushTokenFront(const std::string& s);
 
     // if the return string prefix with "//", skip it
     std::string read_word(bool bFromExternal = true);
