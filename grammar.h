@@ -132,8 +132,8 @@ struct SourceTreeNode {
 	SourceTreeNode*	pNext;
 	int 			param;
 	std::string		value;
-	std::string 	file_name; // only valid for start_root
-	int 			line_no;
+	//std::string 	file_name; // only valid for start_root
+	//int 			line_no;
 	void*			ptr;
 };
 
@@ -736,7 +736,7 @@ TokenWithNamespace defUsingNamespaceGetInfo(const SourceTreeNode* pRoot, bool& b
 //SourceTreeVector defStructUnionDefGetDeclVars(const SourceTreeNode* pRoot);
 // if typedefType==DATA, pType: type, pVar: decl_var, if typedefType==FUNC, pType: extended_type, pVar: func_params, if typedefType==FUNC_PTR, pType: func_type
 TypeDefType defTypedefGetBasicInfo(const SourceTreeNode* pRoot, StringVector& mod_strings);
-void defTypedefDataGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pSuperType, SourceTreeVector& declVarList, SourceTreeNode*& pAttribute);
+void defTypedefDataGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pSuperType, SourceTreeVector& declVarList, StringVector& attribute);
 void defTypedefSuperTypeGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pSuperType, void*& bracket_block);
 void defTypedefDataMemberPtrGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pExtendedTypeNode, TokenWithNamespace& twn, std::string& name);
 void defTypedefFuncGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pExtendedType, bool& bHasParenthesis, StringVector& mod_strings, std::string& name, SourceTreeNode*& pFuncParamsNode);
@@ -776,7 +776,7 @@ void defExternTemplateFuncGetParamByIndex(const SourceTreeNode* pRoot, int idx, 
 
 BlockType blockGetType(const SourceTreeNode* pRoot);
 void blockExternGetInfo(const SourceTreeNode* pRoot, int& modifier_bits, void*& bracket_block);
-void blockNamespaceGetInfo(const SourceTreeNode* pRoot, bool& bInline, std::string& name, SourceTreeNode*& pAttribute, void*& bracket_block);
+void blockNamespaceGetInfo(const SourceTreeNode* pRoot, bool& bInline, std::string& name, StringVector& attribute, void*& bracket_block);
 SourceTreeNode* blockDefGetNode(const SourceTreeNode* pRoot);
 //void blockFuncGetInfo(const SourceTreeNode* pRoot, int& modifier_bits, SourceTreeNode*& pFuncHeaderNode, int& memberInitCount, void*& bracket_block);
 //void blockFuncGetMemberInitByIndex(const SourceTreeNode* pRoot, int idx, std::string& name, SourceTreeNode*& pExpr);
@@ -879,6 +879,8 @@ public:
 
 	int findEndOfStatement(int n, int end_n, bool bForceSemiColon = false);
 	SourceTreeNode* getBlock(StringVector* pBlockData = NULL, const std::string grammar = "", void* context = NULL);
+	// this method must be called right after getBlock()
+	void getRetBlockDefineIn(StringVector& file_stack, int& line_no) { file_stack = m_ret_block_include_files; line_no = m_ret_block_line_no; }
 	bool isEmpty();
 
 	static StringVector bracketBlockGetTokens(void* param);
@@ -905,22 +907,22 @@ public:
 	};
 
 protected:
-	friend CGrammarCacheMapNode;
+	friend class CGrammarCacheMapNode;
 	friend SourceTreeNode* dupSourceTreeNode(const SourceTreeNode* pSourceNode);
 
 	typedef std::map<std::string, GrammarTreeNode*> GrammarMap;
 
 	struct GrammarFileBufferedKeyword
 	{
-		std::string file_name;
+		StringVector include_files;
 		int line_no;
 		std::string keyword;
 	};
 
 	struct GrammarFile {
-		std::string		cur_file_name;
+		//std::string		cur_file_name;
 		std::string		next_keyword;
-        std::string     next_file_name;
+        StringVector    next_include_files;
         int             next_line_no;
 		std::vector<GrammarFileBufferedKeyword>	buffered_keywords;
 	};
@@ -965,6 +967,9 @@ protected:
     int                     m_err_n;
     std::string             m_err_s;
 	int						m_end_n;
+
+    StringVector			m_ret_block_include_files;
+    int						m_ret_block_line_no;
 
 	void init();
 };

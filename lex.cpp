@@ -14,8 +14,6 @@ const std::string LEXER_PARAM_COMMA = "_P1P1P_COMMA";
 
 #define TRACE  if (g_log_lex) printf
 
-typedef unsigned long long uint64_t;
-
 uint64_t get_cur_tick()
 {
 	uint64_t sec, msec;
@@ -39,7 +37,7 @@ char* cur_time()
 	uint64_t cur_tick = get_cur_tick();
 	time_t tsec = (time_t)(cur_tick / 1000);
 	tm *tp1 = localtime(&tsec);
-	sprintf(time_buf, "%4d-%02d-%02d %02d:%02d:%02d.%03d", tp1->tm_year+1900, tp1->tm_mon+1, tp1->tm_mday, tp1->tm_hour, tp1->tm_min, tp1->tm_sec, cur_tick % 1000);
+	sprintf(time_buf, "%4d-%02d-%02d %02d:%02d:%02d.%03d", tp1->tm_year+1900, tp1->tm_mon+1, tp1->tm_mday, tp1->tm_hour, tp1->tm_min, tp1->tm_sec, (int)(cur_tick % 1000));
 	return time_buf;
 }
 
@@ -117,7 +115,6 @@ StringVector str_explode(const std::string& str, const std::string& delim)
     return ret_v;
 }
 
-
 bool file_exists(const char* fname)
 {
     FILE* fp = fopen(fname, "rb");
@@ -128,6 +125,23 @@ bool file_exists(const char* fname)
     }
 
     return false;
+}
+
+StringVector get_sys_include_path()
+{
+	StringVector s_sys_paths;
+#ifdef _WIN32
+	if (s_sys_paths.empty())
+	{
+		char buf[4096];
+		DWORD ret = GetEnvironmentVariable("INCLUDE", buf, sizeof(buf));
+		if (ret == 0)
+			return s_sys_paths;
+		std::string tmp_s = buf;
+		s_sys_paths = str_explode(tmp_s, ";");
+	}
+#endif
+	return s_sys_paths;
 }
 
 FILE* g_fp = NULL;
@@ -544,10 +558,12 @@ std::string CLexer::get_cur_filename()
     if (m_bFileMode)
     {
         MY_ASSERT(m_file_list.size() > 0);
+		MY_ASSERT(m_file_list.back().file_name.size() > 2);
         return m_file_list.back().file_name;
     }
 
     MY_ASSERT(m_file_stack.size() > 0);
+	MY_ASSERT(m_file_stack.back().size() > 2);
     return m_file_stack.back();
 }
 
@@ -564,17 +580,26 @@ int CLexer::get_cur_line_no()
 
 StringVector CLexer::get_file_stack()
 {
-    if (m_bFileMode)
-    {
-        StringVector ret_v;
-        for (std::vector<SourceFile>::iterator it = m_file_list.begin(); it != m_file_list.end(); it++)
+	StringVector ret_v;
+	if (m_bFileMode)
+	{
+		for (std::vector<SourceFile>::iterator it = m_file_list.begin(); it != m_file_list.end(); it++)
 		{
-            ret_v.push_back(it->file_name);
+			size_t pos = it->file_name.find('-');
+			//MY_ASSERT(pos == std::string::npos);
+			ret_v.push_back(it->file_name.substr(0, pos));
 		}
-        return ret_v;
-    }
-
-    return m_file_stack;
+	}
+	else
+	{
+		for (StringVector::iterator it = m_file_stack.begin(); it != m_file_stack.end(); it++)
+		{
+			size_t pos = it->find('-');
+			//MY_ASSERT(pos == std::string::npos);
+			ret_v.push_back(it->substr(0, pos));
+		}
+	}
+	return ret_v;
 }
 
 std::string CLexer::file_stack_2_string(const StringVector& file_stack, int line_no)
@@ -587,13 +612,13 @@ std::string CLexer::file_stack_2_string(const StringVector& file_stack, int line
 
         s += file_stack[i];
     }
-    return s + std::string(":") + ltoa(line_no);
+    return s + std::string("@") + ltoa(line_no);
 }
 
 void CLexer::string_2_file_stack(const std::string& s, StringVector& file_stack, int& line_no)
 {
     std::string s2 = s.substr(2);
-    size_t pos = s2.find(':');
+    size_t pos = s2.find('@');
     MY_ASSERT(pos != std::string::npos);
     line_no = atoi(s2.c_str() + pos + 1);
     s2.resize(pos);
@@ -603,9 +628,11 @@ void CLexer::string_2_file_stack(const std::string& s, StringVector& file_stack,
         pos = s2.find('|');
         if (pos == std::string::npos)
         {
+			MY_ASSERT(s2.size() > 2);
             file_stack.push_back(s2);
             break;
         }
+		MY_ASSERT(pos > 2);
         file_stack.push_back(s2.substr(0, pos));
         s2 = s2.substr(pos + 1);
     }
@@ -2063,7 +2090,7 @@ std::string CLexer::read_word(bool bFromExternal)
             else
             {
                 std::string s2 = s.substr(2);
-                size_t pos = s2.find(':');
+                size_t pos = s2.find('@');
                 MY_ASSERT(pos != std::string::npos);
                 m_file_line_no = atoi(s2.c_str() + pos + 1);
                 s2.resize(pos);
@@ -2075,10 +2102,12 @@ std::string CLexer::read_word(bool bFromExternal)
                     if (pos == std::string::npos)
                     {
                         //printf("|%s", s2.c_str());
+						MY_ASSERT(s2.size() > 2);
                         m_file_stack.push_back(s2);
                         break;
                     }
                     //printf("|%s", s2.substr(0, pos).c_str());
+					MY_ASSERT(s2.substr(0, pos).size() > 2);
                     m_file_stack.push_back(s2.substr(0, pos));
                     s2 = s2.substr(pos + 1);
                 }
@@ -2110,7 +2139,7 @@ std::string CLexer::read_word(bool bFromExternal)
                 s += m_file_list[i].file_name + "-" + ltoa(m_file_list[i].row);
             }
             last_row = m_file_list.back().row;
-            s += std::string(":") + ltoa(last_row);
+            s += std::string("@") + ltoa(last_row);
             TRACE("#Change file to %s\n", s.c_str());
             return s;
         }
@@ -2121,7 +2150,8 @@ std::string CLexer::read_word(bool bFromExternal)
         {
             if (m_file_list.size() > 1)
             {
-                free(sf.content_start);
+				MY_ASSERT(sf.is_allocated);
+				free(sf.content_start);
                 m_file_list.pop_back();
                 continue;
             }
@@ -2301,7 +2331,9 @@ std::string CLexer::read_word(bool bFromExternal)
             char* content = readContentFromFile(fname.c_str());
             if (content == NULL)
                 fatal_error("include file '%s', not found in file %s:%d", fname.c_str(), sf.file_name.c_str(), sf.row);
-            SourceFile sf2 = {fname, content, content, 1, 1};
+            SourceFile sf2;
+			sf2.file_name = fname;
+			sf2.content_start = sf2.content_cur = content;
             m_file_list.push_back(sf2);
             continue;
         }
@@ -2519,19 +2551,75 @@ std::string CLexer::read_word(bool bFromExternal)
         }
         else
         {
-        	MY_ASSERT(s == "line" || isNumber(s));
-			std::string whole_line = s;
+        	if (s == "line")
+			{
+				s = read_word2(false);
+				MY_ASSERT(!s.empty());
+			}
+			MY_ASSERT(isNumber(s));
+			unsigned int line_no = atoi(s.c_str());
+			s = read_word2(false);
+			MY_ASSERT(!s.empty());
+			MY_ASSERT(s[0] == '"');
+			std::string file_path = s.substr(1, s.size() - 2);
+			// converting "\\" to "\"
+#ifdef _WIN32
+			for (size_t kk = 0; kk < file_path.size(); kk++)
+			{
+				if (file_path[kk] == '\\' && kk + 1 < file_path.size() && file_path[kk + 1] == '\\')
+					file_path.erase(kk + 1, 1);
+			}
+#endif
             while (true)
             {
                 s = read_word2(false);
                 if (s.empty())
                     break;
-				whole_line += " " + s;
+				//whole_line += " " + s;
             }
-			m_tokens.push_back(whole_line);
-			return "#";
-            //fatal_error("unknown directive <%s> in %s:%d", s.c_str(), sf.file_name.c_str(), sf.row);
+			//m_tokens.push_back(whole_line);
+			//return "#";
+
+			if (line_no == 1)
+			{
+				if (file_path == "<built-in>" || file_path == "<command-line>")
+					continue;
+				if (m_file_list[0].row == 1)
+				{
+					if (m_file_list[0].file_name != file_path)
+						m_file_list[0].file_name = file_path;
+				}
+				else if (m_file_list[0].file_name != file_path) // usually the 4th line is the same as the first line
+				{
+					SourceFile newF;
+					newF.content_start = newF.content_cur = sf.content_cur;
+					newF.row = 0; // there's a '\n' needs to be skipped.
+					newF.file_name = file_path;
+					newF.is_allocated = true;
+					m_file_list.push_back(newF);
+				}
+				//for (int i = 0; i < s_include_path_list.size(); i++)
+				//	printf("    ");
+				//s_include_path_list.push_back(file_path);
+				//printf("%s\n", file_path.c_str());
+			}
+			else
+			{
+				int i;
+				for (i = m_file_list.size() - 1; i >= 0; i--)
+				{
+					if (m_file_list[i].file_name == file_path)
+					{
+						m_file_list[i].content_cur = sf.content_cur;
+						m_file_list[i].row = line_no - 1; // there's a '\n' needs to be skipped.
+						m_file_list.resize(i + 1); // assume their is_allocated are all true
+						break;
+					}
+				}
+				MY_ASSERT(i >= 0);
+			}
         }
+		//fatal_error("unknown directive <%s> in %s:%d", s.c_str(), sf.file_name.c_str(), sf.row);
     }
 
     return "";
@@ -2560,7 +2648,9 @@ void CLexer::startWithFile(const char* file_name)
     if (content == NULL)
         fatal_error("File '%s' open failed", file_name);
 
-    SourceFile sf = {file_name, content, content, 1, 1};
+    SourceFile sf;
+	sf.file_name = file_name;
+	sf.content_start = sf.content_cur = content;
     m_file_list.push_back(sf);
 }
 
@@ -2572,7 +2662,9 @@ void CLexer::startWithBuffer(const char* file_name, const char* buf)
     char* content = (char*)malloc(strlen(buf) + 1);
     strcpy(content, buf);
 
-    SourceFile sf = {file_name, content, content, 1, 1};
+    SourceFile sf;
+	sf.file_name = file_name;
+	sf.content_start = sf.content_cur = content;
     m_file_list.push_back(sf);
 }
 

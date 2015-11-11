@@ -4,7 +4,8 @@
 #include <assert.h>
 #include "flow_impl.h"
 
-#define TRACE(fmt, ...)	do { if (false) printf(fmt, __VA_ARGS__); } while (false)
+#define TRACE(fmt)	do { if (false) printf(fmt); } while (false)
+#define TRACE2(fmt, ...)	do { if (false) printf(fmt, __VA_ARGS__); } while (false)
 
 #define __FLOW_CALL_SIGNAL_DELETE_OBJECT  0x80000000
 #define FLOW_STACK_DEFAULT_SIZE		512000
@@ -34,7 +35,7 @@ void flow_init(FLOW_OBJECT* pObj)
 
 void flow_signal(FLOW_OBJECT* pObj, void* param)
 {
-	TRACE("flow_signal, pObj=0x%lx, ", pObj);
+	TRACE2("flow_signal, pObj=0x%lx, ", (unsigned long)pObj);
 	FLOW_FUNC callback_func = pObj->callback_func;
 	if (callback_func)
 	{
@@ -55,7 +56,7 @@ void flow_signal(FLOW_OBJECT* pObj, void* param)
 
 bool __flow_wait(FLOW_OBJECT* pObj, FLOW_FUNC callback_func, unsigned signal, void* callback_data, void** param)
 {
-	TRACE("__flow_wait, pObj=0x%lx, ", pObj);
+	TRACE2("__flow_wait, pObj=0x%lx, ", (unsigned long)pObj);
 	__FLOW_FUNCTION_BLOCK* pCallingBlock = (__FLOW_FUNCTION_BLOCK*)callback_data;
 
   	if (pObj->value)
@@ -120,7 +121,7 @@ void* __flow_start(void* parent_flow, unsigned long stack_size)
 	}
 	pFlow->stack = (char*)pFlow + sizeof(__FlowBlock);
 	pFlow->stack_allocated = stack_size;
-	TRACE("__flow_start, parent=0x%lx, child=0x%lx\n", (long)pParentFlow, (long)pFlow);
+	TRACE2("__flow_start, parent=0x%lx, child=0x%lx\n", (long)pParentFlow, (long)pFlow);
 	return pFlow;
 }
 
@@ -131,7 +132,7 @@ void* __flow_func_enter(void* flow, FLOW_FUNC caller_func, void* caller_data, un
 	__flow_assert(pFlow->cur_stack == NULL || caller_data == pFlow->cur_stack);
 	__flow_assert(pFlow->stack_used + block_size < pFlow->stack_allocated);
 	__FLOW_FUNCTION_BLOCK* pFuncBlock = (__FLOW_FUNCTION_BLOCK*)(pFlow->stack + pFlow->stack_used);
-	TRACE("__flow_func_enter, flow=0x%lx, parent=0x%lx, func=0x%lx\n", (long)flow, (long)caller_data, (long)pFuncBlock);
+	TRACE2("__flow_func_enter, flow=0x%lx, parent=0x%lx, func=0x%lx\n", (long)flow, (long)caller_data, (long)pFuncBlock);
 	pFuncBlock->flow_block = pFlow;
 	pFuncBlock->this_func = NULL;
 	pFuncBlock->caller_func = caller_func;
@@ -157,7 +158,7 @@ void __flow_func_expand_stack(void* flow, void* caller_data, long block_size)
 
 void __flow_func_leave(void* flow, void* func_data)
 {
-	TRACE("__flow_func_leave, flow=0x%lx, func=0x%lx\n", (long)flow, (long)func_data);
+	TRACE2("__flow_func_leave, flow=0x%lx, func=0x%lx\n", (long)flow, (long)func_data);
 	__FlowBlock* pFlow = (__FlowBlock*)flow;
 	__FLOW_FUNCTION_BLOCK* pFuncBlock = (__FLOW_FUNCTION_BLOCK*)func_data;
 
@@ -170,7 +171,7 @@ void __flow_func_leave(void* flow, void* func_data)
 // delete the whole stack, all sub_flows, remove itself from parent flow
 void __flow_end(void* flow)
 {
-	TRACE("__flow_end, flow=0x%lx\n", (long)flow);
+	TRACE2("__flow_end, flow=0x%lx\n", (long)flow);
 	__FlowBlock* pFlow = (__FlowBlock*)flow;
 
 	// cancel all waiting objects
@@ -182,7 +183,7 @@ void __flow_end(void* flow)
 	while (pFlow->cur_stack)
 	{
 		__FLOW_FUNCTION_BLOCK* pPrevStack = (__FLOW_FUNCTION_BLOCK*)pFlow->cur_stack->caller_data;
-		TRACE("__flow_end, flow=0x%lx, delete func=0x%lx, parent=0x%lx\n", (long)flow, (long)pFlow->cur_stack, (long)pPrevStack);
+		TRACE2("__flow_end, flow=0x%lx, delete func=0x%lx, parent=0x%lx\n", (long)flow, (long)pFlow->cur_stack, (long)pPrevStack);
 		if (pFlow->cur_stack->this_func)
 			pFlow->cur_stack->this_func(__FLOW_CALL_SIGNAL_DELETE_OBJECT, pFlow->cur_stack);
 		pFlow->cur_stack = pPrevStack;
@@ -192,7 +193,7 @@ void __flow_end(void* flow)
 	{
 		//if (pFlow->sub_flows->waiting_object)
 		//{
-		TRACE("__flow_end, flow=0x%lx, deleting sub flow 0x%lx\n", (long)flow, (long)pFlow->sub_flows);
+		TRACE2("__flow_end, flow=0x%lx, deleting sub flow 0x%lx\n", (long)flow, (long)pFlow->sub_flows);
 		__flow_end(pFlow->sub_flows);
 		//}
 		/*else
@@ -204,7 +205,7 @@ void __flow_end(void* flow)
 	}
 
 	__FlowBlock* pParent = pFlow->parent_flow;
-	TRACE("__flow_end, flow=0x%lx, remove myself from parent flow 0x%lx, my next flow is 0x%lx\n", (long)flow, (long)pParent, (long)pFlow->next_flow);
+	TRACE2("__flow_end, flow=0x%lx, remove myself from parent flow 0x%lx, my next flow is 0x%lx\n", (long)flow, (long)pParent, (long)pFlow->next_flow);
 	if (pParent)
 	{
 		if (pParent->sub_flows == pFlow)
@@ -221,7 +222,7 @@ void __flow_end(void* flow)
 		}
 	}
 
-	TRACE("__flow_end, delete myself 0x%lx\n", (long)pFlow);
+	TRACE2("__flow_end, delete myself 0x%lx\n", (long)pFlow);
 	free(pFlow);
 }
 

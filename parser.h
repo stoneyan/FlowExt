@@ -314,12 +314,12 @@ while (signal <= 3)
     signal = 1;
   if (signal <= 1)
   {
+	if (bMode != 0) // for only
+      expr3;
     if (!expr) // while and for only
       break;
     if (bMode != 0 && !expr) // do only
       break;
-	if (bMode != 0) // for only
-      expr3;
   }
   bMode = 2;
 

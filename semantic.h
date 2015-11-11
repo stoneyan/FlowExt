@@ -2,8 +2,8 @@
 #define __SEMANTIC__H_
 
 #include "grammar.h"
-#include <boost/shared_ptr.hpp>
-#include <boost/enable_shared_from_this.hpp>
+//#include <boost/shared_ptr.hpp>
+//#include <boost/enable_shared_from_this.hpp>
 
 struct SymbolDefObject;
 class CVarDef;
@@ -120,10 +120,13 @@ public:
     CScope* getParent() { return m_pParent; }
     void setParent(CScope* pParent) { m_pParent = pParent; }
 
-    void setDefLocation(const std::string& file_name, int line_no) { m_file_name = file_name; m_line_no = line_no; }
-    const std::string& getDefFileName() { return m_file_name; }
+    void setDefLocation(const StringVector& file_stack, int line_no) { 
+		m_file_stack = file_stack; m_line_no = line_no; 
+	}
+    const std::string& getDefFileName() { return m_file_stack.back(); }
+    const StringVector& getDefFileStack() { return m_file_stack; }
     int getDefLineNo() { return m_line_no; }
-    std::string definedIn() { return m_file_name + ":" + ltoa(m_line_no);}
+    std::string definedIn() { return m_file_stack.back() + ":" + ltoa(m_line_no);}
 
     // return NULL if not in a tmeplate
     CScope* getParentScope(GrammarObjectType go_type);
@@ -133,7 +136,7 @@ public:
 protected:
     CScope*         m_pParent;
     std::string     m_name;
-    std::string     m_file_name;
+    StringVector    m_file_stack;
     int             m_line_no;
 };
 
@@ -539,6 +542,7 @@ public:
 	{
 		//m_pParent = pParent;
 		m_bRealScope = true;
+		m_bTransformed = false;
 	}
 	virtual ~CScope()
 	{
@@ -557,6 +561,8 @@ public:
 	void setRealScope(bool bRealScope) { m_bRealScope = bRealScope; }
 	virtual std::string toString(int depth = 0) = 0;
 
+	bool isTransformed() { return m_bTransformed; }
+	void setTransformed() { if (getParent() == NULL) return; m_bTransformed = true; if (getParent()) getParent()->setTransformed(); }
 	int getChildrenCount() { return (int)m_children.size(); }
 	CScope* getChildAt(int idx) { return m_children[idx]; }
 	void addChild(CScope* pObj)
@@ -640,10 +646,11 @@ public:
 	bool checkTemplateParamHasTypename(const TokenWithNamespace& twn, int idx);
 
 public:
-	bool							m_bRealScope; // extern "C", CExpr, defs with no big brackets, non compound statements should set to false
-	//CScope*					m_pParent;
+	bool					m_bRealScope; // extern "C", CExpr, defs with no big brackets, non compound statements should set to false
+	bool					m_bTransformed;
+	//CScope*				m_pParent;
 	std::vector<CScope*>	m_children;
-	SymbolDefMap 					m_symbol_map;
+	SymbolDefMap 			m_symbol_map;
 	//std::vector<NamespaceTokenPair>	m_using_namespace_list;
 };
 
@@ -664,7 +671,8 @@ public:
 	CExpr(CScope* pParent, ExprType expr_type, TypeDefPointer pTypeDef, CExpr* pLeft); // type cast
     CExpr(CScope* pParent, ExprType expr_type, CFuncDeclare* pFuncDeclare, const std::vector<CExpr*>& param_list); // func call
     CExpr(CScope* pParent, ExprType expr_type, CExpr* pExpr, const std::vector<CExpr*>& param_list);
-	CExpr(CScope* pParent, ExprType expr_type, CExpr* pCondExpr, CExpr* pExpr1, CExpr* pExpr2);
+	CExpr(CScope* pParent, ExprType expr_type, CExpr* pCondExpr, CExpr* pExpr1, CExpr* pExpr2); // ? : 
+    CExpr(CScope* pParent, ExprType expr_type, CExpr* pExpr, TypeDefPointer pTypeDef, const std::vector<CExpr*>& param_list); // new replacement
 
     virtual std::string getDebugName();
     virtual GrammarObjectType getGoType() { return GO_TYPE_EXPR; }
@@ -959,6 +967,7 @@ protected:
     std::string             m_template_name;
     std::vector<TypeParam>  m_typeParams;
     std::vector<TypeParam>  m_specializedTypeParams; // for specialized template only, in this list, all type and num values are stored in pDefaultExtendedTypeNode
+	int						m_specializedTypeParamCount;
     std::string				m_uniqueId;
 
     SourceTreeNode*         m_pFuncReturnExtendedTypeNode; // for func and var
@@ -1083,6 +1092,7 @@ public:
 	CFuncDeclare*       m_pFuncDeclare;
 	//int	                m_modifier_bits;
 	StringVector		m_mod_strings;
+	StringVector		m_mod2_strings;
 	CTemplate*          m_pTemplate;
 	CScope*             m_pGrammarObj;
 	CExpr*              m_pExpr; // only used in typedef typeof
@@ -1164,6 +1174,7 @@ public:
 	void setExternModifier(int modifier) { m_extern_modifier = modifier; }
 	void addUnnamedNamespace(CNamespace* pNamespace) { m_unnamed_namespaces.push_back(pNamespace); }
     void addUsingNamespace(CNamespace* pNamespace);
+	void setModStrings(const StringVector& mod_strings) { m_mod_strings = mod_strings; }
 
 	void analyze(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTreeNode* pRoot);
 	void analyzeFuncDef(const SourceTreeNode* pRoot);
@@ -1175,6 +1186,7 @@ protected:
 	std::string m_name;
 	int         m_depth;
 	int	        m_extern_modifier;
+	StringVector	m_mod_strings;
 	std::vector<CNamespace*>    m_unnamed_namespaces;
     std::vector<CNamespace*>    m_using_namespaces;
 };

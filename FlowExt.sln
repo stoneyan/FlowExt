@@ -1,0 +1,26 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "FlowExt", "FlowExt.vcxproj", "{9EDFC1C6-8060-441F-9F7B-EA5567EBB5BB}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "tmp", "tmp\tmp.vcxproj", "{3C1B0211-808B-4AC0-B391-38C64B483773}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Win32 = Debug|Win32
+		Release|Win32 = Release|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{9EDFC1C6-8060-441F-9F7B-EA5567EBB5BB}.Debug|Win32.ActiveCfg = Debug|Win32
+		{9EDFC1C6-8060-441F-9F7B-EA5567EBB5BB}.Debug|Win32.Build.0 = Debug|Win32
+		{9EDFC1C6-8060-441F-9F7B-EA5567EBB5BB}.Release|Win32.ActiveCfg = Release|Win32
+		{9EDFC1C6-8060-441F-9F7B-EA5567EBB5BB}.Release|Win32.Build.0 = Release|Win32
+		{3C1B0211-808B-4AC0-B391-38C64B483773}.Debug|Win32.ActiveCfg = Debug|Win32
+		{3C1B0211-808B-4AC0-B391-38C64B483773}.Debug|Win32.Build.0 = Debug|Win32
+		{3C1B0211-808B-4AC0-B391-38C64B483773}.Release|Win32.ActiveCfg = Release|Win32
+		{3C1B0211-808B-4AC0-B391-38C64B483773}.Release|Win32.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

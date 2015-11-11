@@ -15,6 +15,8 @@
 typedef std::vector<std::string> StringVector;
 typedef std::set<std::string> StringSet;
 
+typedef unsigned long long uint64_t;
+
 #define MY_ASSERT(x)	do { if (!(x)) abort(); } while (false)
 void fatal_error(const char* format, ...);
 char* ltoa(long v);
@@ -22,6 +24,8 @@ StringVector str_explode(const std::string& str, const std::string& delim);
 void write_log(const char* fmt, ...);
 char* cur_time();
 std::string trim(const std::string &s);
+uint64_t get_cur_tick();
+StringVector get_sys_include_path();
 
 #define LEXER_CALLBACK_MODE_GET_FUNCTION    1
 
@@ -45,8 +49,8 @@ public:
     std::string read_word(bool bFromExternal = true);
     std::string read_word_without_comment();
 
-    std::string get_cur_filename();
     int get_cur_line_no();
+	std::string get_cur_filename();
     StringVector get_file_stack();
 
     bool is_empty();
@@ -70,6 +74,9 @@ protected:
         int         row;
         int         col;
         std::string extra_data;
+		bool		is_allocated;
+
+		SourceFile() : content_start(NULL), content_cur(NULL), row(1), col(1), is_allocated(false) {}
     };
 
     struct DefineItem {

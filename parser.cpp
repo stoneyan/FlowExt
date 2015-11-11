@@ -1,9 +1,9 @@
 #include "parser.h"
-#ifdef WIN32
+/*#ifdef WIN32
 #include "dirent.h"
 #else
 #include <dirent.h>
-#endif
+#endif*/
 
 #define TRACE(fmt, ...)	do { if (true) write_log(fmt, __VA_ARGS__); } while (false)
 
@@ -774,20 +774,24 @@ void CMyFunc::checkStatementDecompose(ScopeVector& ret_v, CStatement* pStatement
 				TypeDefPointer pTypeDef = getRootType(pVarDef->getType(), depth);
 				if (depth == 0 && pTypeDef->getClassDef() && pTypeDef->getClassDef()->has_constructor())
 				{
-					// a.A::A(...);
+					// new (&a) A(...);
 					pVarDef2->setSeqNo(m_local_obj_var_index++);
 					local_obj_var_cnt++;
 
 					CClassDef* pClassDef = pTypeDef->getClassDef();
 					TokenWithNamespace twn = getRelativeTWN(pClassDef);
-					twn.addScope(pClassDef->getName());
+					/*twn.addScope(pClassDef->getName());
 					CFuncDeclare* pFuncDeclare = pClassDef->findFuncDeclare(pClassDef->getName(), pVarDef->getExprListInDeclVar());
 					MY_ASSERT(pFuncDeclare);
 					CExpr* pFuncExpr = new CExpr(NULL, EXPR_TYPE_REF_ELEMENT, new CExpr(NULL, EXPR_TYPE_PTR_ELEMENT, 
 						new CExpr(NULL, EXPR_TYPE_TOKEN_WITH_NAMESPACE, LOCALVAR_NAME), pVarDef->getName()), twn);
 					pFuncExpr->setFuncDeclare(pFuncDeclare);
 					addToStatementVector(ret_v, new CStatement(pStatement->getParent()->getRealScope(), STATEMENT_TYPE_EXPR2, 
-						new CExpr(NULL, EXPR_TYPE_FUNC_CALL, pFuncExpr, pVarDef->getExprListInDeclVar())), inAndOutSignalNo);
+						new CExpr(NULL, EXPR_TYPE_FUNC_CALL, pFuncExpr, pVarDef->getExprListInDeclVar())), inAndOutSignalNo);*/
+					addToStatementVector(ret_v, new CStatement(pStatement->getParent()->getRealScope(), STATEMENT_TYPE_EXPR2, 
+						new CExpr(NULL, EXPR_TYPE_NEW_ADV, new CExpr(NULL, EXPR_TYPE_ADDRESS_OF, new CExpr(NULL, EXPR_TYPE_PARENTHESIS, 
+							new CExpr(NULL, EXPR_TYPE_PTR_ELEMENT, new CExpr(NULL, EXPR_TYPE_TOKEN_WITH_NAMESPACE, LOCALVAR_NAME), pVarDef->getName()))), 
+							pVarDef->getType(), pVarDef->getExprListInDeclVar())), inAndOutSignalNo);
 
 					// pLocalVar->__flow_delete_table[pLocalVar->basic.delete_counter++] = seq;
 					addToStatementVector(ret_v, new CStatement(pStatement->getParent()->getRealScope(), STATEMENT_TYPE_EXPR2, 
@@ -1053,12 +1057,12 @@ void CMyFunc::checkStatementDecompose(ScopeVector& ret_v, CStatement* pStatement
               signal = nSignalEnter + 1;
             if (signal <= nSignalEnter + 1)
             {
+              if (nTempMode != 0) // for only
+                expr2;
               if (!expr) // while and for only
                 break;
               if (nTempMode != 0 && !expr) // do only
                 break;
-              if (nTempMode != 0) // for only
-                expr2;
             }
             bFirstEnter = false;
 		*/
@@ -1079,15 +1083,8 @@ void CMyFunc::checkStatementDecompose(ScopeVector& ret_v, CStatement* pStatement
 		pStatement3->setAppFlag();
 		pStatement2->insertChildAt(0, pStatement3);
 
-		//if (nTempMode != 0) // for only
-		//  expr2;
-		if (pStatement->getStatementType() == STATEMENT_TYPE_FOR)
-		{
-			pStatement2->insertChildAt(0, new CStatement(NULL, STATEMENT_TYPE_IF,
-				new CExpr(NULL, EXPR_TYPE_NOT_EQUAL, new CExpr(NULL, EXPR_TYPE_TOKEN_WITH_NAMESPACE, tempVarName), new CExpr(NULL, EXPR_TYPE_CONST_VALUE, "0")), 
-				new CStatement(NULL, STATEMENT_TYPE_EXPR2, pExpr2)));
-		}
-
+        //if (!expr) // while and for only
+        //break;
 		//if (nTempMode != 0 && !expr) // do only
 		//  break;
 		pExpr1 = createNotExpr(pExpr1);
@@ -1097,6 +1094,15 @@ void CMyFunc::checkStatementDecompose(ScopeVector& ret_v, CStatement* pStatement
 				pExpr1);
 		pStatement2->insertChildAt(0, new CStatement(NULL, STATEMENT_TYPE_IF, pExpr1,
 			new CStatement(NULL, STATEMENT_TYPE_BREAK)));
+
+		//if (nTempMode != 0) // for only
+		//  expr2;
+		if (pStatement->getStatementType() == STATEMENT_TYPE_FOR)
+		{
+			pStatement2->insertChildAt(0, new CStatement(NULL, STATEMENT_TYPE_IF,
+				new CExpr(NULL, EXPR_TYPE_NOT_EQUAL, new CExpr(NULL, EXPR_TYPE_TOKEN_WITH_NAMESPACE, tempVarName), new CExpr(NULL, EXPR_TYPE_CONST_VALUE, "0")), 
+				new CStatement(NULL, STATEMENT_TYPE_EXPR2, pExpr2)));
+		}
 
 		m_continue_stack.push_back(local_obj_var_cnt);
 		m_break_stack.push_back(local_obj_var_cnt);
@@ -1280,8 +1286,10 @@ void CMyFunc::checkStatementDecompose(ScopeVector& ret_v, CStatement* pStatement
 		TypeDefPointer pTypeDef = TypeDefPointer(new CTypeDef(m_pFunc->getParent()->getRealScope(), m_pStructTypeDef->getName(), m_pStructTypeDef, 1));
 		pFuncType->addFuncParam(new CVarDef(NULL, FLOW_FORK_PARENT_PARAM_NAME, pTypeDef, NULL));
 
-		CFunction* pNewFunc = new CFunction(m_pFunc->getParent()->getRealScope(), getNewSubFuncName(), pFuncType, FLOW_TYPE_FLOW, 
-			new CFuncDeclare(m_pFunc->getParent()->getRealScope(), getNewSubFuncName(), pFuncType));
+		std::string new_sub_name = getNewSubFuncName();
+		CFunction* pNewFunc = new CFunction(m_pFunc->getParent()->getRealScope(), new_sub_name, pFuncType, FLOW_TYPE_FLOW, 
+			new CFuncDeclare(m_pFunc->getParent()->getRealScope(), new_sub_name, pFuncType));
+		pNewFunc->setDefLocation(m_pFunc->getDefFileStack(), 0);
 
 		MY_ASSERT(pStatement->getChildrenCount() == (bIsFlowNew ? 2 : 1));
 		CStatement* pStatement2 = (CStatement*)pStatement->getChildAt(bIsFlowNew ? 1 : 0);
@@ -1350,7 +1358,7 @@ void CMyFunc::checkStatementDecompose(ScopeVector& ret_v, CStatement* pStatement
 		param_v.push_back(new CExpr(NULL, EXPR_TYPE_CONST_VALUE, EMPTY_POINTER));
 		param_v.push_back(new CExpr(NULL, EXPR_TYPE_CONST_VALUE, EMPTY_POINTER));
 		param_v.push_back(new CExpr(NULL, EXPR_TYPE_CONST_VALUE, ltoa(__FLOW_CALL_SIGNAL_FIRST_ENTER)));
-		param_v.push_back(new CExpr(pStatement, EXPR_TYPE_SIZEOF, findTypeDef(FUNC_DEF_STRUCT_PREFIX + pNewFunc->getName())));
+		param_v.push_back(new CExpr(pStatement, EXPR_TYPE_SIZEOF, findTypeDef(pBaseTypeDef->getName())));
 
 		CVarDef* pFuncVar = new CVarDef(pNewFunc->getParent()->getRealScope(), getTempVarName(), pTypeDef2, NULL,
 			new CExpr(pStatement->getRealScope(), EXPR_TYPE_TYPE_CAST, pTypeDef2,
@@ -1392,6 +1400,7 @@ void CMyFunc::checkStatementDecompose(ScopeVector& ret_v, CStatement* pStatement
 
 		CFunction* pSubFunc = new CFunction(m_pFunc->getParent()->getRealScope(), getNewSubFuncName(), pFuncType, FLOW_TYPE_FLOW,  
 			new CFuncDeclare(m_pFunc->getParent()->getRealScope(), getNewSubFuncName(), pFuncType));
+		pSubFunc->setDefLocation(m_pFunc->getDefFileStack(), 0);
 
 		CStatement* pStatement2 = (CStatement*)pStatement->getChildAt(0);
 		if (pStatement2->getStatementType() == STATEMENT_TYPE_COMPOUND)
@@ -1999,6 +2008,7 @@ ScopeVector CMyFunc::analyze()
 	{
 		CStatement* pDefStatement = addFuncDefStruct(pParentScope, m_pFunc->getFuncDeclare());
 		m_result_v.push_back(pDefStatement);
+		pDefStatement->setDefLocation(m_pFunc->getDefFileStack(), m_pFunc->getDefLineNo());
 		pDefStruct = pDefStatement->getTypeDef()->getBaseType()->getClassDef();
 	}
 	MY_ASSERT(pDefStruct);
@@ -2008,7 +2018,9 @@ ScopeVector CMyFunc::analyze()
 	pImplStruct->addBaseClass(pDefStruct);
 	m_pStructTypeDef = TypeDefPointer(new CTypeDef(m_pFunc->getParent()->getRealScope(), impl_struct_name, pImplStruct));
 	m_pFunc->getParent()->getRealScope()->addTypeDef(TypeDefPointer(new CTypeDef(m_pFunc->getParent()->getRealScope(), impl_struct_name, m_pStructTypeDef, 0)));
-	m_result_v.push_back(new CStatement(m_pFunc->getParent()->getRealScope(), STATEMENT_TYPE_DEF, m_pStructTypeDef));
+	CStatement* pImplStatement = new CStatement(m_pFunc->getParent()->getRealScope(), STATEMENT_TYPE_DEF, m_pStructTypeDef);
+	pImplStatement->setDefLocation(m_pFunc->getDefFileStack(), m_pFunc->getDefLineNo());
+	m_result_v.push_back(pImplStatement);
 
 	// add func params
 	int n = 0;
@@ -2095,7 +2107,7 @@ ScopeVector CMyFunc::analyze()
 		}
 	}
 
-	// expand function stack
+	// __flow_func_expand_stack(__flow_func_var->__flow_basic.flow_block, __flow_func_var, sizeof(__FLOW_FUNC_IMPL_func));
 	param_v.clear();
 	param_v.push_back(new CExpr(NULL, EXPR_TYPE_REF_ELEMENT, new CExpr(NULL, EXPR_TYPE_PTR_ELEMENT, 
 		new CExpr(NULL, EXPR_TYPE_TOKEN_WITH_NAMESPACE, LOCALVAR_NAME), FLOW_BASIC_MEMBER_NAME), FLOW_BASIC_FLOW_MEMBER_NAME));
@@ -2136,11 +2148,10 @@ ScopeVector CMyFunc::analyze()
 			new CExpr(m_pFunc, EXPR_TYPE_FUNC_CALL, findFuncDecl(FLOW_START_FUNC_NAME), param_v))));
 
 		// Struct* pFuncData = (Struct*)__flow_func_enter(pFlow, NULL, NULL, 0, sizeof(Struct));
-		TypeDefPointer pBaseTypeDef = findTypeDef(FUNC_DEF_STRUCT_PREFIX + m_pFunc->getName());
-		MY_ASSERT(pBaseTypeDef);
-		//pBaseTypeDef = TypeDefPointer(new CTypeDef(NULL, pBaseTypeDef->getName(), pBaseTypeDef, 0));
-
-		TypeDefPointer pTypeDef2 = TypeDefPointer(new CTypeDef(m_pFunc->getParent()->getRealScope(), pBaseTypeDef->getName(), pBaseTypeDef, 1));
+		std::string tempDefVarName = getTempVarName();
+		TypeDefPointer pFuncStructDefType = findTypeDef(FUNC_DEF_STRUCT_PREFIX + m_pFunc->getName());
+		MY_ASSERT(pFuncStructDefType);
+		TypeDefPointer pFuncStructDefPointerType = TypeDefPointer(new CTypeDef(m_pFunc->getParent()->getRealScope(), pFuncStructDefType->getName(), pFuncStructDefType, 1));
 
 		param_v.clear();
 		param_v.push_back(new CExpr(NULL, EXPR_TYPE_TOKEN_WITH_NAMESPACE, flowName));
@@ -2149,8 +2160,8 @@ ScopeVector CMyFunc::analyze()
 		param_v.push_back(new CExpr(NULL, EXPR_TYPE_CONST_VALUE, ltoa(__FLOW_CALL_SIGNAL_FIRST_ENTER)));
 		param_v.push_back(new CExpr(m_pFunc, EXPR_TYPE_SIZEOF, findTypeDef(FUNC_DEF_STRUCT_PREFIX + m_pFunc->getName())));
 
-		m_pFunc->insertChildAt(1, new CStatement(m_pFunc, STATEMENT_TYPE_DEF, new CVarDef(m_pFunc, LOCALVAR_NAME, pTypeDef2, NULL,
-			new CExpr(NULL, EXPR_TYPE_TYPE_CAST, pTypeDef2,
+		m_pFunc->insertChildAt(1, new CStatement(m_pFunc, STATEMENT_TYPE_DEF, new CVarDef(m_pFunc, tempDefVarName, pFuncStructDefPointerType, NULL,
+			new CExpr(NULL, EXPR_TYPE_TYPE_CAST, pFuncStructDefPointerType,
 				new CExpr(NULL, EXPR_TYPE_FUNC_CALL, findFuncDecl(FLOW_FUNC_ENTER_FUNC_NAME), param_v)
 			)
 		)));
@@ -2160,10 +2171,20 @@ ScopeVector CMyFunc::analyze()
 		{
 			CVarDef* pVarDef = m_pFunc->getFuncType()->getFuncParamAt(i);
 			m_pFunc->insertChildAt(2 + i, new CStatement(NULL, STATEMENT_TYPE_EXPR2, new CExpr(NULL, EXPR_TYPE_ASSIGN,
-				new CExpr(NULL, EXPR_TYPE_PTR_ELEMENT, new CExpr(NULL, EXPR_TYPE_TOKEN_WITH_NAMESPACE, LOCALVAR_NAME), pVarDef->getName()),
+				new CExpr(NULL, EXPR_TYPE_PTR_ELEMENT, new CExpr(NULL, EXPR_TYPE_TOKEN_WITH_NAMESPACE, tempDefVarName), pVarDef->getName()),
 				new CExpr(NULL, EXPR_TYPE_TOKEN_WITH_NAMESPACE, pVarDef->getName())
 			)));
 		}
+
+		// __FLOW_FUNC_IMPL_func* __flow_func_var = (__FLOW_FUNC_IMPL_func*)tempVarName;
+		TypeDefPointer pFuncStructImplType = findTypeDef(FUNC_IMPL_STRUCT_PREFIX + m_pFunc->getName());
+		MY_ASSERT(pFuncStructImplType);
+		TypeDefPointer pFuncStructImplPointerType = TypeDefPointer(new CTypeDef(m_pFunc->getParent()->getRealScope(), pFuncStructImplType->getName(), pFuncStructImplType, 1));
+		m_pFunc->insertChildAt(2 + m_pFunc->getFuncType()->getFuncParamCount(), new CStatement(m_pFunc, STATEMENT_TYPE_DEF, new CVarDef(m_pFunc, LOCALVAR_NAME, pFuncStructImplPointerType, NULL,
+			new CExpr(NULL, EXPR_TYPE_TYPE_CAST, pFuncStructImplPointerType, 
+				new CExpr(NULL, EXPR_TYPE_TOKEN_WITH_NAMESPACE, tempDefVarName)
+			)
+		)));
 	}
 	/*else
 	{
@@ -2268,6 +2289,7 @@ ScopeVector parseGrammarObject(CScope* pScope)
 		//printf("onFuncRead, flowType=%d\n", pFunc->getFlowType());
 		if (pFunc->getFlowType() != FLOW_TYPE_NONE)
 		{
+			pFunc->setTransformed();
 			CMyFunc* pMyFunc = new CMyFunc(pFunc);
 			return pMyFunc->analyze();
 		}
@@ -2306,8 +2328,10 @@ ScopeVector parseGrammarObject(CScope* pScope)
 			CScope* pParentScope = pFuncDeclare->getParent();
 			CStatement* pStructStatement = addFuncDefStruct(pFuncDeclare->getParent(), pFuncDeclare);
 			if (pStructStatement)
+			{
+				pStructStatement->setDefLocation(pStatement->getDefFileStack(), pStatement->getDefLineNo());
 				ret_v.push_back(pStructStatement);
-
+			}
 			if (pFuncDeclare->getParent()->getGoType() == GO_TYPE_CLASS)
 			{
 				CFunction* pStaticFunction = createStaticFunction((CClassDef*)pFuncDeclare->getParent(), pFuncDeclare->getName());
@@ -2321,6 +2345,7 @@ ScopeVector parseGrammarObject(CScope* pScope)
 			pStatement->getTypeDef()->addFuncParam(pVarDef);
 			pStatement->setFuncDeclare(new CFuncDeclare(pParentScope, pFuncDeclare->getName(), pStatement->getTypeDef()));
 
+			pStatement->setTransformed();
 			pStatement->getTypeDef()->setFuncFlowType(FLOW_TYPE_NONE);
 			break;
 		}
@@ -2353,15 +2378,23 @@ ScopeVector parseGrammarObject(CScope* pScope)
 	return ret_v;
 }
 
-void AnalyzeFile(char* file_name, int argc, char* argv[])
+void AnalyzeFile(char* file_name, char* dest_path, int argc, char* argv[])
 {
 	try {
 		CNamespace* pNamespace = semanticAnalyzeFile(file_name, argc, argv);
 		enterScope(pNamespace);
 		parseGrammarObject(pNamespace);
 		std::string ret_s = pNamespace->toString(0);
-		printf("%s\n", ret_s.c_str());
 		leaveScope();
+
+		FILE* wfp = fopen(dest_path, "wt");
+		if (!wfp)
+			printf("cannot open dest file %s\n", dest_path);
+		else
+		{
+			fprintf(wfp, "%s\n", ret_s.c_str());
+			fclose(wfp);
+		}
 	}
 	catch (std::string& s)
 	{
@@ -2371,12 +2404,24 @@ void AnalyzeFile(char* file_name, int argc, char* argv[])
 
 int main(int argc, char* argv[])
 {
-	argc--;
-	argv++;
+#ifdef _WIN32
+	StringVector include_paths = get_sys_include_path();
+	if (include_paths.empty())
+	{
+		printf("\n\nCannot find INCLUDE environment variable\n");
+		return 1;
+	}
+#endif
+	if (argc != 3)
+	{
+		printf("\n\nUsage: %s <src_file> <dest_file>\n\n", argv[0]);
+		return 1;
+	}
 
 	semanticInit();
+	AnalyzeFile(argv[1], argv[2], 0, NULL);
 
-	DIR *d;
+	/*DIR *d;
 	struct dirent *dir;
 	d = opendir(".");
 
@@ -2390,11 +2435,7 @@ int main(int argc, char* argv[])
 		if (strcmp(postfix, ".cpp") == 0 || strcmp(postfix, "*.c") == 0)
 			AnalyzeFile(dir->d_name, argc, argv);
 	}
-	closedir(d);
+	closedir(d);*/
 
-	//printf("===================print logic object tree=============\n");
-	//dump_htmls();
-
-	//printf("done\n");
 	return 0;
 }

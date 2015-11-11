@@ -1,6 +1,5 @@
 #include "grammar.h"
 #include <algorithm>
-#include <windows.h>
 
 /* struct XXX* ptr; // it works even when XXX is not defined.
  * struct AAA {
@@ -173,7 +172,8 @@ bool g_grammar_log = false;
 bool g_source_tree_log = false;
 GrammarCheckFunc g_grammarCheckFunc = NULL;
 GrammarCallback g_grammarCallback = NULL;
-#define TRACE(fmt, ...)	do { if (g_grammar_log) write_log(fmt, __VA_ARGS__); } while (false)
+#define TRACE(fmt)	do { if (g_grammar_log) write_log(fmt); } while (false)
+#define TRACE2(fmt, ...)	do { if (g_grammar_log) write_log(fmt, __VA_ARGS__); } while (false)
 
 //void onIdentifierResolved(GrammarFile& gf, const std::string& name, SourceTreeNode* pSourceNode, int n);
 std::string printSourceTree(const SourceTreeNode* pSourceNode, int depth);
@@ -400,7 +400,7 @@ SourceTreeNode* createEmptyNode()
 
 	pNode = new SourceTreeNode;
 	pNode->pChild = pNode->pNext = NULL;
-	pNode->line_no = pNode->param = 0;
+	pNode->param = 0;
 
 	return pNode;
 }
@@ -2710,13 +2710,12 @@ SourceTreeNode* exprCreateConst(ExprType expr_type, const std::string val)
 
 	SourceTreeNode* pRoot = new SourceTreeNode;
 	pRoot->pChild = pRoot->pNext = NULL;
-	pRoot->line_no = 0;
 	pRoot->param = expr_type;
 
 	SourceTreeNode* pNode = new SourceTreeNode;
 	pRoot->pChild = pNode;
 	pNode->pChild = pNode->pNext = NULL;
-	pNode->line_no = pNode->param = 0;
+	pNode->param = 0;
 	pNode->value = val;
 
 	return pRoot;
@@ -2728,7 +2727,6 @@ SourceTreeNode* exprCreateRefOrPtr(SourceTreeNode* pLeft, ExprType expr_type, co
 
 	SourceTreeNode* pRoot = new SourceTreeNode;
 	pRoot->pChild = pRoot->pNext = NULL;
-	pRoot->line_no = 0;
 	pRoot->param = expr_type;
 
 	pRoot->pChild = pLeft;
@@ -2737,7 +2735,7 @@ SourceTreeNode* exprCreateRefOrPtr(SourceTreeNode* pLeft, ExprType expr_type, co
 	SourceTreeNode* pNode = new SourceTreeNode;
 	pLeft->pNext = pNode;
 	pNode->pChild = pNode->pNext = NULL;
-	pNode->line_no = pNode->param = 0;
+	pNode->param = 0;
 	pNode->value = token;
 
 	return pRoot;
@@ -2759,7 +2757,6 @@ SourceTreeNode* exprCreateDoubleOperator(SourceTreeNode* pLeft, ExprType expr_ty
 
 	SourceTreeNode* pRoot = new SourceTreeNode;
 	pRoot->pChild = pRoot->pNext = NULL;
-	pRoot->line_no = 0;
 	pRoot->param = expr_type;
 
 	pRoot->pChild = pLeft;
@@ -3229,7 +3226,7 @@ TypeDefType defTypedefGetBasicInfo(const SourceTreeNode* pRoot, StringVector& mo
 }
 
 // ?[declspec] *[ext_modifier] 'typedef' ^ (type +[decl_var, ','] ?[attribute] | extended_type token '(' ^ func_params ')' | func_type ) ';'
-void defTypedefDataGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pType, SourceTreeVector& declVarList, SourceTreeNode*& pAttribute)
+void defTypedefDataGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pType, SourceTreeVector& declVarList, StringVector& attribute)
 {
 	StringVector mod_strings;
 	MY_ASSERT(defTypedefGetBasicInfo(pRoot, mod_strings) == TYPEDEF_TYPE_DATA);
@@ -3242,9 +3239,8 @@ void defTypedefDataGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pType, 
 		declVarList.push_back(pNode->pChild->pChild);
 	pRoot = pRoot->pNext;
 
-	pAttribute = NULL;
 	if (pRoot->param)
-		pAttribute = pRoot->pChild->pChild;
+		attribute.push_back(attributeModifierGetString(pRoot->pChild->pChild));
 }
 
 void defTypedefSuperTypeGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pSuperType, void*& bracket_block)
@@ -3971,7 +3967,7 @@ void blockExternGetInfo(const SourceTreeNode* pRoot, int& modifier_bits, void*& 
 }
 
 //| ?['inline'] 'namespace' ?[token] ?[attribute] '{' ^ *[start] '}'
-void blockNamespaceGetInfo(const SourceTreeNode* pRoot, bool& bInline, std::string& name, SourceTreeNode*& pAttribute, void*& bracket_block)
+void blockNamespaceGetInfo(const SourceTreeNode* pRoot, bool& bInline, std::string& name, StringVector& attribute, void*& bracket_block)
 {
 	MY_ASSERT(blockGetType(pRoot) == BLOCK_TYPE_NAMESPACE);
 	pRoot = pRoot->pChild;
@@ -3984,9 +3980,8 @@ void blockNamespaceGetInfo(const SourceTreeNode* pRoot, bool& bInline, std::stri
 		name = pRoot->pChild->value;
 	pRoot = pRoot->pNext;
 
-	pAttribute = NULL;
 	if (pRoot->param)
-		pAttribute = pRoot->pChild->pChild;
+		attribute.push_back(attributeModifierGetString(pRoot->pChild->pChild));
 	pRoot = pRoot->pNext;
 
 	MY_ASSERT(pRoot->param == SOURCE_NODE_TYPE_BIG_BRACKET);
@@ -4731,7 +4726,7 @@ std::string displaySourceTreeDeclObjVar(const SourceTreeNode* pRoot)
 	return ret_s += ")";
 }
 
-//attribute		   : '__attribute__' '(' '(' *[(token | token '(' *[(token | const_value | token '=' const_value), ','] ')'), ','] ')' ')';
+//attribute		   : '__attribute__' '(' '(' *[any_token] ')' ')';
 std::string displaySourceTreeAttribute(const SourceTreeNode* pRoot)
 {
 	std::string ret_s;
@@ -4746,35 +4741,9 @@ std::string displaySourceTreeAttribute(const SourceTreeNode* pRoot)
 	ret_s += "__attribute__ ((";
 
 	SourceTreeNode* pNode;
-	for (pRoot = pRoot->pChild; pRoot; pRoot = pRoot->pNext)
+	for (pNode = pRoot->pChild; pNode; pNode = pNode->pNext)
 	{
-		pNode = pRoot->pChild->pChild;
-		if (pNode->param == 0)
-		{
-			ret_s += pNode->pChild->value;
-		}
-		else
-		{
-			pNode = pNode->pChild;
-			ret_s += pNode->value + "(";
-			pNode = pNode->pNext;
-			for (pNode = pNode->pChild; pNode; pNode = pNode->pNext)
-			{
-				if (pNode->pChild->pChild->param == 0)
-					ret_s += pNode->pChild->pChild->pChild->value;
-				else if (pNode->pChild->pChild->param == 1)
-					ret_s += pNode->pChild->pChild->pChild->value;
-				else
-					ret_s += pNode->pChild->pChild->pChild->value + "=" + pNode->pChild->pChild->pChild->pNext->value;
-
-				if (pNode->pNext)
-					ret_s += ", ";
-			}
-			ret_s += ")";
-		}
-
-		if (pRoot->pNext)
-			ret_s += ", ";
+		ret_s += pNode->pChild->value + " ";
 	}
 
 	ret_s += "))";
@@ -5966,10 +5935,10 @@ void printAnalyzePath(const std::vector<std::string>& analyze_path)
 	n -= n % 20;
 
 	if (n != 0)
-		TRACE("%ld...", n);
+		TRACE2("%ld...", n);
 
 	for (it = analyze_path.begin() + n; it != analyze_path.end(); it++)
-		TRACE("%s->", it->c_str());
+		TRACE2("%s->", it->c_str());
 }
 
 std::string getAnalyzePath(const std::vector<std::string>& analyze_path)
@@ -6378,11 +6347,11 @@ std::string CGrammarAnalyzer::grammar_read_word(int& n, int end_n, bool bSkipCom
 
 		while (n >= m_gf.buffered_keywords.size())
 		{
-			std::string file_name;
+			StringVector include_files;
 			int line_no;
 			if (m_gf.next_keyword.empty())
 			{
-				file_name = m_srcfile_lexer.get_cur_filename();
+				include_files = m_srcfile_lexer.get_file_stack();
 				line_no = m_srcfile_lexer.get_cur_line_no();
 				s = m_srcfile_lexer.read_word();
 				if (s.empty())
@@ -6391,10 +6360,10 @@ std::string CGrammarAnalyzer::grammar_read_word(int& n, int end_n, bool bSkipCom
 			else
 			{
 				s = m_gf.next_keyword;
-				file_name = m_gf.next_file_name;
+				include_files = m_gf.next_include_files;
 				line_no = m_gf.next_line_no;
 			}
-			m_gf.next_file_name = m_srcfile_lexer.get_cur_filename();
+			m_gf.next_include_files = m_srcfile_lexer.get_file_stack();
 			m_gf.next_line_no = m_srcfile_lexer.get_cur_line_no();
 			m_gf.next_keyword = m_srcfile_lexer.read_word();
             MY_ASSERT(m_gf.next_keyword != "##");
@@ -6413,7 +6382,7 @@ std::string CGrammarAnalyzer::grammar_read_word(int& n, int end_n, bool bSkipCom
 				continue;
 			}
 			GrammarFileBufferedKeyword item;
-			item.file_name = file_name;
+			item.include_files = include_files;
 			item.line_no = line_no;
 			item.keyword = s;
 			m_gf.buffered_keywords.push_back(item);
@@ -6480,7 +6449,7 @@ int CGrammarAnalyzer::AnalyzeGrammar2(std::vector<std::string> analyze_path, Gra
 
 	std::string& name = pGrammar->name;
 	if (g_grammar_log)
-		printAnalyzePath(analyze_path); TRACE("%s, n=%d~%d, bNoMoreGrammar=%d\n", name.c_str(), n, end_n, bNoMoreGrammar);
+		printAnalyzePath(analyze_path); TRACE2("%s, n=%d~%d, bNoMoreGrammar=%d\n", name.c_str(), n, end_n, bNoMoreGrammar);
 
 	// if tail is a const grammar, check it first
 	GrammarTreeNode* pPrevGrammar;
@@ -6517,7 +6486,7 @@ int CGrammarAnalyzer::AnalyzeGrammar2(std::vector<std::string> analyze_path, Gra
 		{
 			if (n3 != n2)
 			{
-				TRACE("couldn't reach tail const, n2=%d, n3=%d, return", n2, n3);
+				TRACE2("couldn't reach tail const, n2=%d, n3=%d, return", n2, n3);
 				return -1;
 			}
 			n = end_n;
@@ -6536,7 +6505,7 @@ int CGrammarAnalyzer::AnalyzeGrammar2(std::vector<std::string> analyze_path, Gra
 		if (s.empty())
 		{
 			std::string err_s = "Cannot read further while expecting " + pGrammar->name;
-			TRACE("%s\n", err_s.c_str());
+			TRACE2("%s\n", err_s.c_str());
 			set_error(n, err_s);
 			return -1;
 		}
@@ -6545,11 +6514,11 @@ int CGrammarAnalyzer::AnalyzeGrammar2(std::vector<std::string> analyze_path, Gra
 			set_error(n, std::string("Found '") + s + "' while expecting " + pGrammar->name);
 			return -1;
 		}
-		TRACE("Skipping %s\n", s.c_str());
+		TRACE2("Skipping %s\n", s.c_str());
 	}
 	if (pGrammar == pGrammarEnd)
 	{
-		TRACE("empty, return %d\n", n);
+		TRACE2("empty, return %d\n", n);
 		return n;
 	}
 	GrammarTreeNode* pGrammarP, *pGrammarTemp = NULL;
@@ -6568,7 +6537,7 @@ int CGrammarAnalyzer::AnalyzeGrammar2(std::vector<std::string> analyze_path, Gra
 
 	bool bDividerIsTheOne = pGrammarTemp && pGrammarTemp->name == "^O";
 	std::string s, s_p = pGrammarP->name.substr(1, pGrammarP->name.size() - 2);
-	TRACE("found divider grammar '%s', the_one=%d\n", s_p.c_str(), bDividerIsTheOne);
+	TRACE2("found divider grammar '%s', the_one=%d\n", s_p.c_str(), bDividerIsTheOne);
 
 	SourceTreeNode* pOrigChildTail = findChildTail(pSourceParent), *pLastGoodNode = NULL;
 	int orig_n = n, last_good_n = -1, flagsLastGood;
@@ -6605,23 +6574,23 @@ int CGrammarAnalyzer::AnalyzeGrammar2(std::vector<std::string> analyze_path, Gra
 		{
 			//err_n = n;
 			//err_s = "not found in string, return -1";
-			TRACE("%s, not found '%s' in string, last_matched_np=%d, n=%d\n", __FUNCTION__, s_p.c_str(), last_matched_np, n);
+			TRACE2("%s, not found '%s' in string, last_matched_np=%d, n=%d\n", __FUNCTION__, s_p.c_str(), last_matched_np, n);
 			break;
 		}
 		n_p--;
 		last_matched_np = n_p;
-		TRACE("%s, found %s in string at %d, now checking the first half\n", __FUNCTION__, s_p.c_str(), n_p);
+		TRACE2("%s, found %s in string at %d, now checking the first half\n", __FUNCTION__, s_p.c_str(), n_p);
 		n = AnalyzeGrammar2(analyze_path, pGrammar, pGrammarP, n, n_p, true, tempDefMap2, pBlockRoot, pSourceParent, flags2);
-		TRACE("%s, the first half returns %d\n", __FUNCTION__, n);
+		TRACE2("%s, the first half returns %d\n", __FUNCTION__, n);
 		if (n >= 0 && n != n_p)
 		{
-			TRACE("%s, but expecting to reach %d\n", __FUNCTION__, n_p);
+			TRACE2("%s, but expecting to reach %d\n", __FUNCTION__, n_p);
 			n = -1;
 		}
 		if (n < 0)
 		{
 			deleteChildTail(pSourceParent, pOrigChildTail);
-			TRACE("%s, analyzing first phase failed, n_p=%d\n", __FUNCTION__, n_p);
+			TRACE2("%s, analyzing first phase failed, n_p=%d\n", __FUNCTION__, n_p);
 			continue;
 		}
 		n++;
@@ -6637,16 +6606,16 @@ int CGrammarAnalyzer::AnalyzeGrammar2(std::vector<std::string> analyze_path, Gra
                 n = AnalyzeGrammar2(analyze_path, pGrammarP->next, pGrammarEnd, n, end_n, bNoMoreGrammar, tempDefMap2, pBlockRoot, pSourceParent, flags2);
                 if (n >= 0 && bNoMoreGrammar && end_n >= 0 && n != end_n)
                 {
-                    TRACE("%s, last half returned %d while bNoMoreGrammar=true and end_n=%d\n", __FUNCTION__, n, end_n);
+                    TRACE2("%s, last half returned %d while bNoMoreGrammar=true and end_n=%d\n", __FUNCTION__, n, end_n);
                     n = -1;
                 }
                 if (n < 0)
                 {
-                    TRACE("%s, analyzing last half failed\n", __FUNCTION__);
+                    TRACE2("%s, analyzing last half failed\n", __FUNCTION__);
                     deleteChildTail(pSourceParent, pOrigChildTail);
                     continue;
                 }
-                TRACE("%s, combine first half and second half, and return %d\n", __FUNCTION__, n);
+                TRACE2("%s, combine first half and second half, and return %d\n", __FUNCTION__, n);
             }
             else // three parts
             {
@@ -6677,7 +6646,7 @@ int CGrammarAnalyzer::AnalyzeGrammar2(std::vector<std::string> analyze_path, Gra
                     s = grammar_read_word(n_q, end_n);
                     if (s.empty())
                     {
-                        TRACE("%s, EOF found when searching for the next pair, return -1\n", __FUNCTION__);
+                        TRACE2("%s, EOF found when searching for the next pair, return -1\n", __FUNCTION__);
                         deleteChildTail(pSourceParent, pOrigChildTail);
                         continue;
                     }
@@ -6692,7 +6661,7 @@ int CGrammarAnalyzer::AnalyzeGrammar2(std::vector<std::string> analyze_path, Gra
                                 bFound = true;
                                 break;
                             }
-                            TRACE("%s, found '%s' at %d that cannot be paired, return -1\n", __FUNCTION__, s.c_str(), n_q);
+                            TRACE2("%s, found '%s' at %d that cannot be paired, return -1\n", __FUNCTION__, s.c_str(), n_q);
                             deleteChildTail(pSourceParent, pOrigChildTail);
                             continue;
                         }
@@ -6701,38 +6670,38 @@ int CGrammarAnalyzer::AnalyzeGrammar2(std::vector<std::string> analyze_path, Gra
                 }
                 if (!bFound)
                 {
-                    TRACE("%s, cannot find the other match pair %s from %d~%d, return -1\n", __FUNCTION__, s_q.c_str(), n, n_q);
+                    TRACE2("%s, cannot find the other match pair %s from %d~%d, return -1\n", __FUNCTION__, s_q.c_str(), n, n_q);
                     deleteChildTail(pSourceParent, pOrigChildTail);
                     continue;
                 }
-                TRACE("%s, Found the other match pair %s at %d, now checking the middle part\n", __FUNCTION__, s_q.c_str(), n_q);
+                TRACE2("%s, Found the other match pair %s at %d, now checking the middle part\n", __FUNCTION__, s_q.c_str(), n_q);
 
                 n_q--;
                 n = AnalyzeGrammar2(analyze_path, pGrammarP->next, pGrammarQ, n, n_q, true, tempDefMap2, pBlockRoot, pSourceParent, flags2);
-                TRACE("%s, the middle part returns %d\n", __FUNCTION__, n);
+                TRACE2("%s, the middle part returns %d\n", __FUNCTION__, n);
                 if (n < 0 || n != n_q)
                 {
-                    TRACE("%s, but expect to reach %d\n", __FUNCTION__, n_q);
+                    TRACE2("%s, but expect to reach %d\n", __FUNCTION__, n_q);
                     deleteChildTail(pSourceParent, pOrigChildTail);
                     continue;
                 }
                 n++;
                 pGrammarQ = pGrammarQ->next;
-                TRACE("%s, now checking the third phase, n=%d\n", __FUNCTION__, n);
+                TRACE2("%s, now checking the third phase, n=%d\n", __FUNCTION__, n);
                 n = AnalyzeGrammar2(analyze_path, pGrammarQ, pGrammarEnd, n, end_n, bNoMoreGrammar, tempDefMap2, pBlockRoot, pSourceParent, flags2);
-                TRACE("%s, third phase returns %d\n", __FUNCTION__, n);
+                TRACE2("%s, third phase returns %d\n", __FUNCTION__, n);
                 if (n < 0)
                 {
-                    TRACE("%s, Analyze last phase failed\n", __FUNCTION__);
+                    TRACE2("%s, Analyze last phase failed\n", __FUNCTION__);
                     deleteChildTail(pSourceParent, pOrigChildTail);
                     continue;
                 }
-                TRACE("%s, 3 phases analyze succeeded. return %d\n", __FUNCTION__, n);
+                TRACE2("%s, 3 phases analyze succeeded. return %d\n", __FUNCTION__, n);
             }
 		}
 		if (last_good_n < n)
 		{
-		    TRACE("%s, change last_good_n to %d\n", __FUNCTION__, n);
+		    TRACE2("%s, change last_good_n to %d\n", __FUNCTION__, n);
             last_good_n = n;
             lastGoodTempDefMap = tempDefMap2;
             flagsLastGood = flags2;
@@ -6770,7 +6739,7 @@ int CGrammarAnalyzer::AnalyzeGrammar2(std::vector<std::string> analyze_path, Gra
     }
     tempDefMap = lastGoodTempDefMap;
     flags = flagsLastGood;
-    TRACE("AnalyzeGrammar2 succeed, return %d\n", last_good_n);
+    TRACE2("AnalyzeGrammar2 succeed, return %d\n", last_good_n);
     return last_good_n;
 }
 
@@ -6884,7 +6853,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 		MY_ASSERT(n >= 0);
 		if (g_grammar_log)
 		{
-            printAnalyzePath(analyze_path); TRACE("%s%s, n=%d~%d, word='%s', flags=%d\n", name.c_str(), pGrammar->param.c_str(), n, end_n, s.c_str(), flags);
+            printAnalyzePath(analyze_path); TRACE2("%s%s, n=%d~%d, word='%s', flags=%d\n", name.c_str(), pGrammar->param.c_str(), n, end_n, s.c_str(), flags);
 			analyze_path.push_back(name);
 		}
 		if (name == "const_value")
@@ -6912,7 +6881,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 				}
 				pSourceNode->value += s;
 			}
-			TRACE("***matched const_value:%s\n", pSourceNode->value.c_str());
+			TRACE2("***matched const_value:%s\n", pSourceNode->value.c_str());
 			appendToChildTail(pSourceParent, pSourceNode);
 		}
 		else if (name == "token" || name == "any_token")
@@ -6935,11 +6904,11 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 			{
 				MY_ASSERT(tempDefMap.find(s) == tempDefMap.end());
 				tempDefMap[s] = 1;
-				TRACE("***add temp type %s\n", s.c_str());
+				TRACE2("***add temp type %s\n", s.c_str());
 			}
 			else if (pGrammar->attrib & GRAMMAR_ATTRIB_IS_TEMP_VAR)
             {
-                TRACE("***add temp var %s\n", s.c_str());
+                TRACE2("***add temp var %s\n", s.c_str());
                 // name could be duplicate when in func params, the first param is a func type which has a param whose name is the same as the afterward param of the func
                 MY_ASSERT(tempDefMap.find(s) == tempDefMap.end() || tempDefMap[s] == 2);
                 tempDefMap[s] = 2;
@@ -6956,11 +6925,15 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 			appendToChildTail(pSourceParent, pSourceNode);
 			BracketBlock* pBlock = new BracketBlock;
 			StringVector file_stack;
-			file_stack.push_back(m_gf.buffered_keywords[min(m_gf.buffered_keywords.size() - 1, n)].file_name);
-			pBlock->tokens.push_back(CLexer::file_stack_2_string(file_stack, m_gf.buffered_keywords[min(m_gf.buffered_keywords.size() - 1, n)].line_no));
+			int temp_n = m_gf.buffered_keywords.size() - 1;
+			if (temp_n > n)
+				temp_n = n;
+			file_stack = m_gf.buffered_keywords[temp_n].include_files;
+			pBlock->tokens.push_back(CLexer::file_stack_2_string(file_stack, m_gf.buffered_keywords[temp_n].line_no));
 			pBlock->pGrammarNode = NULL;
 
 			end_n = findEndOfStatement(n, -1, name == "extra_block2");
+			TRACE2("put everything in the extra_block, n=%d, end_n=%d\n", n, end_n);
 			MY_ASSERT(end_n >= 0);
 			while (true)
 			{
@@ -6970,7 +6943,6 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 				pBlock->tokens.push_back(s);
 			}
 			pSourceNode->ptr = pBlock;
-			TRACE("put everything in the extra_block, n=%d\n", n);
 		}
 		else if (name.at(0) == '\'')
 		{
@@ -6997,7 +6969,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 				break;
 			}
 
-			TRACE("***matched const string %s at %d\n", name.c_str(), n);
+			TRACE2("***matched const string %s at %d\n", name.c_str(), n);
 			n++;
 
 	        if (bSetTheOneFlag)
@@ -7037,7 +7009,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
                 s = grammar_read_word(n2, end_n);
                 if (s.empty())
                 {
-                    TRACE("cannot found %s, end_n=%d\n", end_name.c_str(), end_n);
+                    TRACE2("cannot found %s, end_n=%d\n", end_name.c_str(), end_n);
 					set_error(n2, "cannot found " + end_name + ", starting at " + ltoa(n));
                     return -1;
                 }
@@ -7060,20 +7032,20 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
                 }
             }
             n2--;
-            TRACE("found closing bracket %s at %d\n", end_name.c_str(), n2);
+            TRACE2("found closing bracket %s at %d\n", end_name.c_str(), n2);
             n = AnalyzeGrammar(analyze_path, pGrammar, pGrammarEnd2, n, n2, true, tempDefMap, pBlockRoot, pSourceParent, flags);
-            TRACE("The first half returns %d\n", n);
+            TRACE2("The first half returns %d\n", n);
             if (n < 0)
                 break;
             if (n != n2)
             {
-                TRACE("but %d is expected\n", n2);
+                TRACE2("but %d is expected\n", n2);
                 n = -1;
                 break;
             }
             n2++;
             n = AnalyzeGrammar(analyze_path, pGrammarEnd2->next, pGrammarEnd, n2, end_n, bNoMoreGrammar, tempDefMap, pBlockRoot, pSourceParent, flags);
-            TRACE("The second half returns %d, err_n=%d\n", n, m_err_n);
+            TRACE2("The second half returns %d, err_n=%d\n", n, m_err_n);
             break;
 		}
 		else if (CLexer::isIdentifier(name))
@@ -7094,12 +7066,12 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 					analyze_path.pop_back();
 				if (n < 0)
 				{
-					TRACE("cache found! n=%d, err_n=%d, err_s=%s\n", n, pattern_it->second.err_n, pattern_it->second.err_s.c_str());
+					TRACE2("cache found! n=%d, err_n=%d, err_s=%s\n", n, pattern_it->second.err_n, pattern_it->second.err_s.c_str());
 					set_error(pattern_it->second.err_n, pattern_it->second.err_s);
 					break;
 				}
 
-				TRACE("cache found! n=%d, flags=%d\n", n, flags);
+				TRACE2("cache found! n=%d, flags=%d\n", n, flags);
 				appendToChildTail(pSourceParent, dupSourceTreeNode(pattern_it->second.pSourceNode));
 				flags = pattern_it->second.flags;
 				tempDefMap = pattern_it->second.tempDefMap;
@@ -7148,12 +7120,12 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 				n = AnalyzeGrammar2(analyze_path, it->second, NULL, n, end_n, (pGrammar->next == pGrammarEnd) && bNoMoreGrammar, tempDefMap2, pBlockRoot, pSourceNode, tempFlags);
 			else
 				n = AnalyzeGrammar(analyze_path, it->second, NULL, n, end_n, (pGrammar->next == pGrammarEnd) && bNoMoreGrammar, tempDefMap2, pBlockRoot, pSourceNode, tempFlags);
-			TRACE("***%s returns n=%d, flags=%d, err_n=%d\n", name.c_str(), n, flags, m_err_n);
+			TRACE2("***%s returns n=%d, flags=%d, err_n=%d\n", name.c_str(), n, flags, m_err_n);
 			if (n > 0)
 			{
 				if (!postIdentifierHandling(name, pSourceNode->pChild))
 				{
-					TRACE("Check %s failed\n", name.c_str());
+					TRACE2("Check %s failed\n", name.c_str());
 					set_error(n, "post identifier handling failed for " + name);
 					n = -1;
 				}
@@ -7165,7 +7137,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 					{
 						if (!g_grammarCheckFunc(m_context, 0, pSourceNode->pChild, tempDefMap2))
 						{
-							TRACE("Check token_with_namespace '%s', not a token\n", displaySourceTreeTokenWithNamespace(pSourceNode->pChild).c_str());
+							TRACE2("Check token_with_namespace '%s', not a token\n", displaySourceTreeTokenWithNamespace(pSourceNode->pChild).c_str());
 							set_error(n, displaySourceTreeTokenWithNamespace(pSourceNode->pChild) + " is not a token");
 							n = -1;
 						}
@@ -7175,7 +7147,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 					{
 						if (!g_grammarCheckFunc(m_context, 1, pSourceNode->pChild, tempDefMap2))
 						{
-							TRACE("Check user_def_type '%s', not a type\n", displaySourceTreeUserDefType(pSourceNode->pChild).c_str());
+							TRACE2("Check user_def_type '%s', not a type\n", displaySourceTreeUserDefType(pSourceNode->pChild).c_str());
 							set_error(n, displaySourceTreeUserDefType(pSourceNode->pChild) + " is not a user defined type");
 							n = -1;
 						}
@@ -7200,7 +7172,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 			else
 				cache.pSourceNode = NULL;
 			m_pattern_result_cache_map[pattern] = cache;
-			TRACE("Adding to cache, pattern=%s, result, n=%d, err_n=%d, flags=%d\n", pattern.c_str(), n, m_err_n, flags);
+			TRACE2("Adding to cache, pattern=%s, result, n=%d, err_n=%d, flags=%d\n", pattern.c_str(), n, m_err_n, flags);
 
 			if (temp_err_n >= 0)
 				set_error(temp_err_n, temp_err_s);
@@ -7214,7 +7186,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 			n = AnalyzeGrammar(analyze_path, pGrammar->children, NULL, n, end_n, (pGrammar->next == pGrammarEnd) && bNoMoreGrammar, tempDefMap, pBlockRoot, pSourceNode, flags);
 			if (g_grammar_log)
 			{
-				printAnalyzePath(analyze_path); TRACE(", return %d\n", n);
+				printAnalyzePath(analyze_path); TRACE2(", return %d\n", n);
 			}
 			if (n < 0)
 				break;
@@ -7253,7 +7225,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 						if (s == ">")
 						  break;
 						set_error(n2, "find unmatched parenthesis " + s);
-						TRACE("find unmatched parenthesis %s", s.c_str());
+						TRACE2("find unmatched parenthesis %s", s.c_str());
 						n = -1;
 						break;
 					}
@@ -7262,11 +7234,11 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 			}
 			if (n < 0)
 			    break;
-            TRACE("found > at %d\n", n2 - 1);
+            TRACE2("found > at %d\n", n2 - 1);
             // setting of typename doesn't mean the type params inside should also skip type checking. otherwise, an expr will be treated as a type
             int flags2 = flags & ~ANALYZE_FLAG_BIT_NO_TYPE_CHECK;
             int j = AnalyzeGrammar(analyze_path, pGrammar->children, NULL, n, n2 - 1, true, tempDefMap, pBlockRoot, pSourceParent, flags2);
-            TRACE("analyze <> return %d\n", j);
+            TRACE2("analyze <> return %d\n", j);
             if (flags2 & ANALYZE_FLAG_BIT_THE_ONE)
                 flags |= ANALYZE_FLAG_BIT_THE_ONE;
 			if (j < 0)
@@ -7278,7 +7250,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 			if (j != n2 - 1)
 			{
 				set_error(j, std::string("cannot analyze from ") + ltoa(j) + " till end of parenthesis");
-				TRACE("but %d is expected", n2 - 1);
+				TRACE2("but %d is expected", n2 - 1);
 				n = -1;
 				break;
 			}
@@ -7291,7 +7263,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 			appendToChildTail(pSourceParent, pSourceNode);
 			BracketBlock* pBlock = new BracketBlock;
 			StringVector file_stack;
-			file_stack.push_back(m_gf.buffered_keywords[n].file_name);
+			file_stack = m_gf.buffered_keywords[n].include_files;
 			pBlock->tokens.push_back(CLexer::file_stack_2_string(file_stack, m_gf.buffered_keywords[n].line_no));
 			MY_ASSERT(CLexer::isIdentifier(pGrammar->children->name));
 			MY_ASSERT(pGrammar->children->next == NULL);
@@ -7344,7 +7316,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 				}
 			}
 			pSourceNode->ptr = pBlock;
-			TRACE("***%[] tail found at %d\n", n);
+			TRACE2("***%[] tail found at %d\n", n);
 		}
 		else if (name == "?")
 		{
@@ -7356,7 +7328,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 				int j = AnalyzeGrammar2(analyze_path, pGrammar->children, NULL, n, end_n, (pGrammar->next == pGrammarEnd) && bNoMoreGrammar, tempDefMap, pBlockRoot, pSourceNode, flags);
                 if (g_grammar_log)
                 {
-                    printAnalyzePath(analyze_path); TRACE(", ?[] returns %d\n", j);
+                    printAnalyzePath(analyze_path); TRACE2(", ?[] returns %d\n", j);
                 }
                 if (j >= 0)
                 {
@@ -7371,7 +7343,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
                     {
                         if (g_grammar_log)
                         {
-                            printAnalyzePath(analyze_path); TRACE(", ?[] passed, return %d\n", j);
+                            printAnalyzePath(analyze_path); TRACE2(", ?[] passed, return %d\n", j);
                         }
                         n = j;
                         break;
@@ -7391,7 +7363,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
                 pSourceNode->pChild = pSourceNode->pNext = NULL;
                 if (g_grammar_log)
                 {
-                    printAnalyzePath(analyze_path); TRACE(", ?[] not pass, check next, n=%d, err_n=%d\n", n, m_err_n);
+                    printAnalyzePath(analyze_path); TRACE2(", ?[] not pass, check next, n=%d, err_n=%d\n", n, m_err_n);
                 }
 			}
 			else
@@ -7403,13 +7375,13 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 			        int n2 = findPairEnd(n, end_n);
 			        if (n2 > 0)
 					{
-						TRACE("?(, Found ')' at %d\n", n2);
+						TRACE2("?(, Found ')' at %d\n", n2);
 						int n3 = AnalyzeGrammar(analyze_path, pGrammar->children, NULL, n + 1, n2, true, tempDefMap, pBlockRoot, pSourceNode, flags);
 						if (n3 == n2)
 						{
 							pSourceNode->param = 1;
 							n = n2 + 1;
-							TRACE("The ?() with () returns %d\n", n);
+							TRACE2("The ?() with () returns %d\n", n);
 							bMatchFound = true;
 						}
 						else
@@ -7417,12 +7389,12 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 							deleteSourceTreeNode(pSourceNode->pChild);
 							deleteSourceTreeNode(pSourceNode->pNext);
 							pSourceNode->pChild = pSourceNode->pNext = NULL;
-							TRACE("The () inside analysis returns %d while ')' locates at %d, failed\n", n3, n2);
+							TRACE2("The () inside analysis returns %d while ')' locates at %d, failed\n", n3, n2);
 						}
 					}
 					else
 			        {
-			            TRACE("Cannot find the ')' started at %d\n", n);
+			            TRACE2("Cannot find the ')' started at %d\n", n);
 			        }
 			    }
 
@@ -7431,7 +7403,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 					n = AnalyzeGrammar(analyze_path, pGrammar->children, NULL, n, end_n, (pGrammar->next == pGrammarEnd) && bNoMoreGrammar, tempDefMap, pBlockRoot, pSourceNode, flags);
 					if (g_grammar_log)
 					{
-						printAnalyzePath(analyze_path); TRACE(", ?() without () returns %d\n", n);
+						printAnalyzePath(analyze_path); TRACE2(", ?() without () returns %d\n", n);
 					}
 				}
 			}
@@ -7481,7 +7453,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 						if (nDepth == 0 && s == delimiter)
 						{
 							n2--;
-							TRACE("found delimiter at %d\n", n2);
+							TRACE2("found delimiter at %d\n", n2);
 							break;
 						}
 						if (s == "(" || s == "[" || s == "{" || s == "<" && bIncludeLTGT)
@@ -7504,13 +7476,13 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 					int j = AnalyzeGrammar(analyze_path, pGrammar->children, NULL, n, n2, true, tempDefMap, pBlockRoot, pSourceNode2, tempFlags);
 					if (g_grammar_log)
 					{
-						printAnalyzePath(analyze_path); TRACE(", %s[%d] returned %d\n", name.c_str(), pSourceNode2->param, j);
+						printAnalyzePath(analyze_path); TRACE2(", %s[%d] returned %d\n", name.c_str(), pSourceNode2->param, j);
 						analyze_path.pop_back();
 					}
 					if (j >= 0 && j != n2)
 					{
 						set_error(j, "unable to reach " + delimiter);
-						TRACE("expected to reach %d, but reached %d\n", n2, j);
+						TRACE2("expected to reach %d, but reached %d\n", n2, j);
 						j = -1;
 					}
 					if (j < 0)
@@ -7539,7 +7511,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 					int j = AnalyzeGrammar(analyze_path, pGrammar->children, NULL, n, end_n, false/*(pGrammar->next == pGrammarEnd) && bNoMoreGrammar*/, tempDefMap, pBlockRoot, pSourceNode2, tempFlags);
 					if (g_grammar_log)
 					{
-						printAnalyzePath(analyze_path); TRACE(", %s[%d] returned %d\n", name.c_str(), pSourceNode2->param, j);
+						printAnalyzePath(analyze_path); TRACE2(", %s[%d] returned %d\n", name.c_str(), pSourceNode2->param, j);
 						analyze_path.pop_back();
 					}
 					if (j < 0)
@@ -7577,7 +7549,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 			}
 			if (g_grammar_log)
 			{
-				printAnalyzePath(analyze_path); TRACE(", %s[] return %d, n=%d\n", name.c_str(), pSourceNode->param, n);
+				printAnalyzePath(analyze_path); TRACE2(", %s[] return %d, n=%d\n", name.c_str(), pSourceNode->param, n);
 			}
 		}
 		else if (name == "|")
@@ -7613,13 +7585,13 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 				if (g_grammar_log)
 				{
 					analyze_path.pop_back();
-					printAnalyzePath(analyze_path); TRACE(", |%d returned %d, flags=%d, err_n=%d\n", idx, j, tempFlags, m_err_n);
+					printAnalyzePath(analyze_path); TRACE2(", |%d returned %d, flags=%d, err_n=%d\n", idx, j, tempFlags, m_err_n);
 				}
 				if (j >= 0)
 				{
 					if (g_grammar_log)
 					{
-						printAnalyzePath(analyze_path); TRACE(", this choice passed, priority=%d, last_priority=%d, j=%d, last_j=%d\n", pGrammar->priority, last_priority, j, last_j);
+						printAnalyzePath(analyze_path); TRACE2(", this choice passed, priority=%d, last_priority=%d, j=%d, last_j=%d\n", pGrammar->priority, last_priority, j, last_j);
 					}
 					// need to select a lower priority
 					bool bCondition;
@@ -7680,7 +7652,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
             //err_s = last_good_err_s;
 			if (g_grammar_log)
 			{
-				printAnalyzePath(analyze_path); TRACE(", | retrun %d, idx=%d, flags=%d, err_n=%d\n", n, last_idx, flags, m_err_n);
+				printAnalyzePath(analyze_path); TRACE2(", | retrun %d, idx=%d, flags=%d, err_n=%d\n", n, last_idx, flags, m_err_n);
 			}
 			break;
 		}
@@ -7828,11 +7800,11 @@ SourceTreeNode* CGrammarAnalyzer::getBlock(StringVector* pBlockData /* = NULL*/,
         printf("\n");*/
 
     SourceTreeNode* pSourceRoot = createEmptyNode();
-    std::string file_name = m_gf.buffered_keywords[n - 1].file_name;
+    StringVector include_files = m_gf.buffered_keywords[n - 1].include_files;
     int line_no = m_gf.buffered_keywords[n - 1].line_no;
     m_err_n = -1;
     GrammarTempDefMap tempDefMap;
-	DWORD start_tick = GetTickCount();
+	uint64_t start_tick = get_cur_tick();
     //printf("%s, analyze grammar '%s' at %s:%d\n", cur_time(), grammar.c_str(), file_name.c_str(), line_no);
     try
     {
@@ -7842,7 +7814,7 @@ SourceTreeNode* CGrammarAnalyzer::getBlock(StringVector* pBlockData /* = NULL*/,
 			n = findEndOfStatement(0, m_end_n);
 			if (n < 0)
 				throw("Cannot find ';' or end of '}'");
-			TRACE("found end of statement at %d, start analyzing\n", n);
+			TRACE2("found end of statement at %d, start analyzing\n", n);
 		}
 		else
 			n = m_end_n;
@@ -7852,7 +7824,7 @@ SourceTreeNode* CGrammarAnalyzer::getBlock(StringVector* pBlockData /* = NULL*/,
         {
             std::string err_string = "\n\n";
             int sz = m_gf.buffered_keywords.size();
-            std::string file_name = m_gf.buffered_keywords[0].file_name;
+            std::string file_name = m_gf.buffered_keywords[0].include_files.back();
             int line_no = m_gf.buffered_keywords[0].line_no;
             for (n = (m_err_n >= 30 ? m_err_n - 30 : 0); n < m_err_n + 30 && n < m_gf.buffered_keywords.size(); n++)
             {
@@ -7874,7 +7846,7 @@ SourceTreeNode* CGrammarAnalyzer::getBlock(StringVector* pBlockData /* = NULL*/,
         {
             s = grammar_read_word(n);
             if (!s.empty() && s != m_grammar_delim)
-                throw(std::string("delimiter '") + m_grammar_delim + "' is expected but '" + s + "' is found at " + m_gf.buffered_keywords[n - 1].file_name + ":" + ltoa(m_gf.buffered_keywords[n - 1].line_no));
+                throw(std::string("delimiter '") + m_grammar_delim + "' is expected but '" + s + "' is found at " + m_gf.buffered_keywords[n - 1].include_files.back() + ":" + ltoa(m_gf.buffered_keywords[n - 1].line_no));
         }
     }
     catch (const std::string& s)
@@ -7886,8 +7858,8 @@ SourceTreeNode* CGrammarAnalyzer::getBlock(StringVector* pBlockData /* = NULL*/,
         return NULL;
     }
 
-    pSourceRoot->pChild->file_name = file_name;
-    pSourceRoot->pChild->line_no = line_no;
+    m_ret_block_include_files = include_files;
+    m_ret_block_line_no = line_no;
     SourceTreeNode* pRetNode = pSourceRoot->pChild;
     pSourceRoot->pChild = NULL;
     deleteSourceTreeNode(pSourceRoot);
