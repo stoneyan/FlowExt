@@ -17,13 +17,12 @@ struct FLOW_OBJECT {
 };
 
 void flow_init(FLOW_OBJECT* pObj);
-void flow_wait(FLOW_OBJECT* pObj, void** param);
-void flow_cancel_wait(FLOW_OBJECT* pObj);
 void flow_signal(FLOW_OBJECT* pObj, void* param);
 void flow_delete(void* pFlow);
+void flow_cancel_wait(FLOW_OBJECT* pObj);
 
-struct __FLOW_FUNCTION_BLOCK {
-    void*        flow_block;
+struct __FLOW_FUNC_BLOCK {
+    void*        this_flow;
 	FLOW_FUNC	 this_func;
     FLOW_FUNC    caller_func;
     void*        caller_data;

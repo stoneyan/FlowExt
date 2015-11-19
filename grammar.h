@@ -257,7 +257,7 @@ enum ExprType
 	EXPR_TYPE_INDIRECTION,		// expr
 	EXPR_TYPE_ADDRESS_OF,		// expr
 	EXPR_TYPE_SIZEOF,			// (extended_type_var | func_type | expr)
-	EXPR_TYPE_NEW_C,	    	// scope extended_type_var
+	EXPR_TYPE_NEW_C,	    	// scope ?( extended_type_var )
     EXPR_TYPE_NEW_OBJECT,       // scope expr2
     EXPR_TYPE_NEW_ADV,          // scope expr, user_def_type, expr2
 	EXPR_TYPE_DELETE = 20,		// scope expr
@@ -281,6 +281,7 @@ enum ExprType
 	EXPR_TYPE_OR,				// expr expr
 	EXPR_TYPE_TERNARY,			// expr expr expr
 	EXPR_TYPE_ASSIGN = 40,      // expr expr
+	EXPR_TYPE_ASSIGN_STRUCT,    // expr expr2
 	EXPR_TYPE_ADD_ASSIGN,	    // expr expr
 	EXPR_TYPE_SUBTRACT_ASSIGN,	// expr expr
 	EXPR_TYPE_MULTIPLE_ASSIGN,	// expr expr
@@ -289,8 +290,8 @@ enum ExprType
 	EXPR_TYPE_LEFT_SHIFT_ASSIGN,	// expr expr
 	EXPR_TYPE_RIGHT_SHIFT_ASSIGN,	// expr expr
 	EXPR_TYPE_BIT_AND_ASSIGN,		// expr expr
-	EXPR_TYPE_BIT_XOR_ASSIGN,		// expr expr
-	EXPR_TYPE_BIT_OR_ASSIGN = 50,	// expr expr
+	EXPR_TYPE_BIT_XOR_ASSIGN = 50,		// expr expr
+	EXPR_TYPE_BIT_OR_ASSIGN,	// expr expr
 	EXPR_TYPE_THROW,			    // expr
 	EXPR_TYPE_CONST_VALUE,			// const_value
 	EXPR_TYPE_TOKEN_WITH_NAMESPACE,	// token
@@ -299,8 +300,8 @@ enum ExprType
     EXPR_TYPE_BUILTIN_TYPE_FUNC,    // type
     EXPR_TYPE_IS_BASE_OF,			// type, type
     EXPR_TYPE_CONST_CAST,           // extended_or_func_type, expr
-    EXPR_TYPE_STATIC_CAST,          // extended_or_func_type, expr
-    EXPR_TYPE_DYNAMIC_CAST = 60,         // extended_or_func_type, expr
+    EXPR_TYPE_STATIC_CAST = 60,          // extended_or_func_type, expr
+    EXPR_TYPE_DYNAMIC_CAST,         // extended_or_func_type, expr
     EXPR_TYPE_REINTERPRET_CAST,     // extended_or_func_type, expr
     EXPR_TYPE_EXTENSION,            // expr
 	// -----------------not used in actual grammar below-------------
@@ -447,6 +448,7 @@ public:
         m_data.push_back(info);
     }
 
+	// bType: extended_type|func_type|expr
     void addTemplateParam(int bType, SourceTreeNode* pNode)
     {
         MY_ASSERT(m_data.size() > 0);
@@ -496,6 +498,7 @@ public:
         MY_ASSERT(depth >= 0 && depth <= m_data.size());
         return (int)m_data.at(depth).template_params.size();
     }
+	// return extended_type|func_type|expr
     int getTemplateParamAt(unsigned depth, unsigned idx, SourceTreeNode*& pChild) const // return true means it's a type node
     {
         MY_ASSERT(depth >= 0 && depth <= m_data.size());
@@ -673,7 +676,7 @@ void declVarChangeName(SourceTreeNode* pRoot, const std::string& new_name);
 //void declVarSetReference(SourceTreeNode* pRoot);
 SourceTreeNode* declVarCreateFromExtendedType(const std::string& name, const SourceTreeNode* pRoot);
 
-void declCVarGetInfo(const SourceTreeNode* pRoot, bool& bRestrict, SourceTreeNode*& pVar, SourceTreeNode*& pInitValue); // pVar: decl_var, pInitValue: expr
+void declCVarGetInfo(const SourceTreeNode* pRoot, bool& bRestrict, SourceTreeNode*& pVar, SourceTreeNode*& pInitValue, bool& bInitValueIsStruct); // pVar: decl_var, pInitValue: expr
 void declObjVarGetInfo(const SourceTreeNode* pRoot, std::string& name, SourceTreeVector& exprList);
 bool declCObjVarGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pChild); // return true if it's a c var decl
 
@@ -737,7 +740,7 @@ TokenWithNamespace defUsingNamespaceGetInfo(const SourceTreeNode* pRoot, bool& b
 // if typedefType==DATA, pType: type, pVar: decl_var, if typedefType==FUNC, pType: extended_type, pVar: func_params, if typedefType==FUNC_PTR, pType: func_type
 TypeDefType defTypedefGetBasicInfo(const SourceTreeNode* pRoot, StringVector& mod_strings);
 void defTypedefDataGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pSuperType, SourceTreeVector& declVarList, StringVector& attribute);
-void defTypedefSuperTypeGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pSuperType, void*& bracket_block);
+void defTypedefSuperTypeGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pSuperType, SourceTreeNode*& pDefVarTailNode);
 void defTypedefDataMemberPtrGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pExtendedTypeNode, TokenWithNamespace& twn, std::string& name);
 void defTypedefFuncGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pExtendedType, bool& bHasParenthesis, StringVector& mod_strings, std::string& name, SourceTreeNode*& pFuncParamsNode);
 SourceTreeNode* defTypedefFuncTypeGetInfo(const SourceTreeNode* pRoot);
@@ -750,7 +753,7 @@ void defFuncDeclGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pFuncHeade
 void defFuncVarDefGetInfo(const SourceTreeNode* pRoot, StringVector& mod_strings, SourceTreeNode*& pFuncType, int& array_count);
 //void defFuncVarDefChangeVarName(SourceTreeNode* pRoot, const std::string& old_name, const std::string& new_name);
 void defVarDefGetInfo(const SourceTreeNode* pRoot, StringVector& mod_strings, SourceTreeNode*& pType, SourceTreeNode*& pDefVarTailNode);
-void defSuperTypeVarDefGetInfo(const SourceTreeNode* pRoot, StringVector& mod_strings, SourceTreeNode*& pSuperType, void*& bracket_block);
+void defSuperTypeVarDefGetInfo(const SourceTreeNode* pRoot, StringVector& mod_strings, SourceTreeNode*& pSuperType, SourceTreeNode*& pDefVarTailNode);
 //void defVarDefChangeVarName(SourceTreeNode* pRoot, const std::string& old_name, const std::string& new_name);
 //SourceTreeNode* defVarDefCreate(SourceTreeNode* pSuperType, SourceTreeNode* pDeclVar, SourceTreeNode* pInitExpr = NULL);
 void defTemplateGetInfo(const SourceTreeNode* pRoot, StringVector& mod_strings, std::vector<void*>& header_types, CSUType& csu_type, void*& bracket_block);

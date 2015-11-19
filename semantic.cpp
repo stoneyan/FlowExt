@@ -2,6 +2,7 @@
 #include <string>
 //#include <bits/stl_algobase.h>
 
+#define	MERGE_INCLUDE_FILE
 bool g_log_semantic = false;
 #define TRACE(fmt)	do { if (g_log_semantic) write_log(fmt); } while (false)
 #define TRACE2(fmt, ...)	do { if (g_log_semantic) write_log(fmt, __VA_ARGS__); } while (false)
@@ -62,8 +63,11 @@ std::string g_buildin_funcs =
 	"int __builtin_popcountll (unsigned long long);\n"
 	"int __builtin_parityll (unsigned long long);\n"
 	"void* __typeof__(void*);\n"
-	"void __builtin_va_start(void*, const void*);\n"
-	"void __builtin_va_end(void*);\n"
+
+	"void __builtin_va_start(__builtin_va_list, const void*);\n"
+	"void __builtin_va_end(__builtin_va_list);\n"
+	"int __builtin_vsprintf(char* __out, const char* __fmt, __builtin_va_list __args);\n"
+	"int __builtin_vsnprintf(char* __out, int __size, const char* __fmt, __builtin_va_list __args);\n"
 
 	"int __sync_fetch_and_add(void* , int);\n"
 	"int __sync_fetch_and_sub(void* , int);\n"
@@ -84,8 +88,6 @@ std::string g_buildin_funcs =
 	"char* __builtin_strstr(const char*, const char*);\n"
 	"char* __builtin_strpbrk(const char*, const char*);\n"
 
-	"int __builtin_vsprintf(char* __out, const char* __fmt, void* __args);\n"
-	"int __builtin_vsnprintf(char* __out, int __size, const char* __fmt, void* __args);\n"
 	//"uint16_t __builtin_bswap16 (uint16_t x);\n"
 	//"uint32_t __builtin_bswap32 (uint32_t x);\n"
 	//"uint64_t __builtin_bswap64 (uint64_t x);\n"
@@ -1282,7 +1284,7 @@ int CTypeDef::checkCallParams(const std::vector<TypeDefPointer>& typeList, bool 
 
 	if (typeList.size() > m_func_params.size() && !m_bHasVArgs)
 	{
-		TRACE("vargs return -1\n");
+		TRACE2("insufficient params, vargs=%d, return -1\n", m_bHasVArgs);
 		return -1;
 	}
 	int score = 0;
@@ -1986,7 +1988,13 @@ std::string CVarDef::toString(bool bDumpInitExpr)
 		}
 
 		if (m_pInitExpr && bDumpInitExpr)
-			ret_s += " = " + m_pInitExpr->toString();
+		{
+			std::string init_str = m_pInitExpr->toString();
+			if (m_pInitExpr->getGoType() != GO_TYPE_EXPR2)
+				ret_s += " = " + init_str;
+			else
+				ret_s += " = {" + init_str + "}";
+		}
 	}
 
 	return ret_s;
@@ -2918,7 +2926,7 @@ TypeDefPointer CScope::getTypeDefByTypeNode(const SourceTreeNode* pRoot, bool bD
 		if (csu_type == CSU_TYPE_NONE)
 		{
 			if (pTypeDef)
-				pTypeDef = TypeDefPointer(new CTypeDef(getRealScope(), "", pTypeDef, NULL));
+				pTypeDef = TypeDefPointer(new CTypeDef(getRealScope(), "", pTypeDef, 0));
 			break;
 		}
 
@@ -2959,7 +2967,7 @@ TypeDefPointer CScope::getTypeDefByTypeNode(const SourceTreeNode* pRoot, bool bD
 			pTypeDef = TypeDefPointer(new CTypeDef(getRealScope(), pTypeDef->getName(), pTypeDef, NULL));
 			pTypeDef->setPrefix(prefix);
 		}*/
-		pTypeDef = TypeDefPointer(new CTypeDef(getRealScope(), "", pTypeDef, NULL));
+		pTypeDef = TypeDefPointer(new CTypeDef(getRealScope(), "", pTypeDef, 0));
 		break;
 	}
 	case BASICTYPE_TYPE_TYPEOF:
@@ -3378,14 +3386,11 @@ CExpr::CExpr(CScope* pParent, ExprType expr_type, CExpr* pCondExpr, CExpr* pExpr
 CExpr::CExpr(CScope* pParent, ExprType expr_type, CExpr* pExpr, TypeDefPointer pTypeDef, const std::vector<CExpr*>& param_list) : CScope(pParent) // new replacement
 {
 	MY_ASSERT(expr_type == EXPR_TYPE_NEW_ADV);
-
 	init();
 	m_expr_type = expr_type;
 	addChild(pExpr);
-
 	m_pTypeDef = pTypeDef;
 	m_bFlag = true;
-
 	for (size_t i = 0; i < param_list.size(); i++)
 	{
 		CExpr* pObj = param_list[i];
@@ -3393,7 +3398,6 @@ CExpr::CExpr(CScope* pParent, ExprType expr_type, CExpr* pExpr, TypeDefPointer p
 		addChild((CExpr*)pObj);
 	}
 }
-
 CExpr::~CExpr()
 {
 }
@@ -3535,7 +3539,7 @@ void CExpr::analyze(const SourceTreeNode* pRoot)
 				nDepth += funcType->getBaseType()->getDepth();
 				funcType = funcType->getBaseType();
 			}
-			if (nDepth != 0)
+			if (nDepth + funcType->getDepth() == 0)
 				throw(func_call_str + " is not a func ptr, but a " + pExpr->getReturnType()->toFullString() + ":" + ltoa(pExpr->getReturnDepth()));
 
 			if (funcType->checkCallParams(typeList, funcType->isConst()) < 0)
@@ -3705,10 +3709,10 @@ void CExpr::analyze(const SourceTreeNode* pRoot)
 		m_return_type = g_type_def_int;
 		break;
 	}
-	case EXPR_TYPE_NEW_C:				// scope extended_type_var
+	case EXPR_TYPE_NEW_C:				// scope ?( extended_type_var )
 	{
 		m_token_with_namespace.copyFrom(scopeGetInfo(exprGetFirstNode(pRoot)));
-		m_pTypeDef = getTypeDefByExtendedTypeVarNode(exprGetSecondNode(pRoot));
+		m_pTypeDef = getTypeDefByExtendedTypeVarNode(exprGetSecondNode(pRoot)->pChild);
 		m_return_type = TypeDefPointer(new CTypeDef(NULL, "", m_pTypeDef, 1));
 		m_return_depth = 1;
 		break;
@@ -4004,6 +4008,7 @@ void CExpr::analyze(const SourceTreeNode* pRoot)
 	case EXPR_TYPE_LEFT_SHIFT:		// expr expr
 	case EXPR_TYPE_RIGHT_SHIFT:		// expr expr
 	case EXPR_TYPE_ASSIGN:			// expr expr
+	case EXPR_TYPE_ASSIGN_STRUCT:	// expr expr2
 	case EXPR_TYPE_ADD_ASSIGN:		// expr expr
 	case EXPR_TYPE_SUBTRACT_ASSIGN:	// expr expr
 	case EXPR_TYPE_MULTIPLE_ASSIGN:	// expr expr
@@ -4350,6 +4355,9 @@ std::string CExpr::toString(int depth) // depth is not used
 		break;
 	case EXPR_TYPE_ASSIGN:			// expr expr
 		ret_s = ((CExpr*)getChildAt(0))->toString() + " = " + ((CExpr*)getChildAt(1))->toString();
+		break;
+	case EXPR_TYPE_ASSIGN_STRUCT:	// expr expr2
+		ret_s = ((CExpr*)getChildAt(0))->toString() + " = {" + ((CExpr2*)getChildAt(1))->toString() + "}";
 		break;
 	case EXPR_TYPE_ADD_ASSIGN:		// expr expr
 		ret_s = ((CExpr*)getChildAt(0))->toString() + " += " + ((CExpr*)getChildAt(1))->toString();
@@ -4728,8 +4736,10 @@ void CExpr::changeRefVarName(const std::string& old_name, CExpr* pNewExpr)
 		((CExpr*)getChildAt(i))->changeRefVarName(old_name, pNewExpr);
 }
 
-CExpr2::CExpr2(CScope* pParent) : CExpr(pParent)
+CExpr2::CExpr2(CScope* pParent, const SourceTreeNode* pRoot) : CExpr(pParent)
 {
+	if (pRoot)
+		analyze(pRoot);
 }
 
 CExpr2::~CExpr2()
@@ -5017,12 +5027,12 @@ void CStatement::analyzeDeclVar(SourceTreeNode* pChildNode, SourceTreeVector& va
 		CVarDef* pVarDef;
 		if (declCObjVarGetInfo(var_v[i], pChild))
 		{
-			bool bRestrict;
+			bool bRestrict, bInitValueIsStruct;
 			SourceTreeNode* pDeclVar, *pInitExpr;
-			declCVarGetInfo(pChild, bRestrict, pDeclVar, pInitExpr);
+			declCVarGetInfo(pChild, bRestrict, pDeclVar, pInitExpr, bInitValueIsStruct);
 			MY_ASSERT(!bRestrict);
 			TokenWithNamespace twn = declVarGetName(pDeclVar);
-			CExpr* pExpr = (pInitExpr ? new CExpr(this, pInitExpr) : NULL);
+			CExpr* pExpr = (pInitExpr ? (!bInitValueIsStruct ? new CExpr(this, pInitExpr) : new CExpr2(this, pInitExpr)) : NULL);
 			if (pExpr)
 				m_bFlow |= pExpr->isFlow();
 			pVarDef = new CVarDef(this, twn, m_pTypeDef, dupSourceTreeNode(pDeclVar), pExpr);
@@ -5613,22 +5623,16 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 		{
 			if (!bTemplate)
 			{
-				SourceTreeNode* pSuperTypeNode;
+				SourceTreeNode* pSuperTypeNode, *pDefVarTailNode;
 				void* remain_block;
-				defTypedefSuperTypeGetInfo(pRoot, pSuperTypeNode, remain_block);
+				defTypedefSuperTypeGetInfo(pRoot, pSuperTypeNode, pDefVarTailNode);
 
 				m_pTypeDef = analyzeSuperType(pSuperTypeNode, (getParentTemplate() != NULL));
 				MY_ASSERT(m_pTypeDef->getType() != SEMANTIC_TYPE_TYPENAME);
 
-				CGrammarAnalyzer ga2;
-				ga2.initWithBlocks(getRealScope(), remain_block);
-				SourceTreeNode* pTailNode = ga2.getBlock(NULL, "def_var_tail", getRealScope());
-				if (pTailNode == NULL)
-					throw("Cannot recognize type list");
-
 				SourceTreeVector declCObjVarList;
 				StringVector mod_strings;
-				defVarTailGetInfo(pTailNode, declCObjVarList, mod_strings);
+				defVarTailGetInfo(pDefVarTailNode, declCObjVarList, mod_strings);
 
 				for (size_t i = 0; i < declCObjVarList.size(); i++)
 				{
@@ -5638,8 +5642,8 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 					if (!declCObjVarGetInfo(pDeclCObjVar, pDeclCVar))
 						throw("a object var is not allowed here");
 
-					bool bRestrict;
-					declCVarGetInfo(pDeclCVar, bRestrict, pDeclVar, pInitValue);
+					bool bRestrict, bInitValueIsStruct;
+					declCVarGetInfo(pDeclCVar, bRestrict, pDeclVar, pInitValue, bInitValueIsStruct);
 					MY_ASSERT(!pInitValue);
 					m_declVarList.push_back(dupSourceTreeNode(pDeclVar));
 
@@ -5695,8 +5699,8 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 					if (!declCObjVarGetInfo(pDeclCObjVar, pDeclCVar))
 						throw("a object var is not allowed here");
 
-					bool bRestrict;
-					declCVarGetInfo(pDeclCVar, bRestrict, pDeclVar, pInitValue);
+					bool bRestrict, bInitValueIsStruct;
+					declCVarGetInfo(pDeclCVar, bRestrict, pDeclVar, pInitValue, bInitValueIsStruct);
 					MY_ASSERT(!pInitValue);
 					TokenWithNamespace twn = declVarGetName(pDeclVar);
 					MY_ASSERT(twn.getDepth() == 1);
@@ -5851,20 +5855,9 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 		SourceTreeNode* pTypeNode, *pSuperTypeNode, *pDefVarTailNode;
 
 		if (m_def_type == DEF_TYPE_VAR_DEF)
-		{
 			defVarDefGetInfo(pRoot, m_mod_strings, pTypeNode, pDefVarTailNode);
-		}
 		else
-		{
-			void* remain_block;
-			defSuperTypeVarDefGetInfo(pRoot, m_mod_strings, pSuperTypeNode, remain_block);
-
-			CGrammarAnalyzer ga2;
-			ga2.initWithBlocks(getRealScope(), remain_block);
-			pDefVarTailNode = ga2.getBlock(NULL, "def_var_tail", getRealScope());
-			if (pDefVarTailNode == NULL)
-				throw("Cannot recognize var list");
-		}
+			defSuperTypeVarDefGetInfo(pRoot, m_mod_strings, pSuperTypeNode, pDefVarTailNode);
 
 		SourceTreeVector declCObjVarList;
 		StringVector mod_strings;
@@ -5880,9 +5873,9 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 				bHasNoPointer = true;
 			else
 			{
-				bool bRestrict;
+				bool bRestrict, bInitValueIsStruct;
 				SourceTreeNode* pDeclVar, *pInitValue;
-				declCVarGetInfo(pDeclCVar, bRestrict, pDeclVar, pInitValue);
+				declCVarGetInfo(pDeclCVar, bRestrict, pDeclVar, pInitValue, bInitValueIsStruct);
 				if (declVarGetDepth(pDeclVar) == 0 && !declVarIsReference(pDeclVar))
 					bHasNoPointer = true;
 			}
@@ -5929,9 +5922,9 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 			}
 			else
 			{
-				bool bRestrict;
+				bool bRestrict, bInitValueIsStruct;
 				SourceTreeNode* pDeclVar, *pInitValue;
-				declCVarGetInfo(pChild, bRestrict, pDeclVar, pInitValue);
+				declCVarGetInfo(pChild, bRestrict, pDeclVar, pInitValue, bInitValueIsStruct);
 				TokenWithNamespace twn = declVarGetName(pDeclVar);
 				name = twn.toString();
 				//if (name.empty())
@@ -5942,7 +5935,7 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 				{
 					if (getParentTemplate() == NULL)
 					{
-						pExpr = new CExpr(getRealScope(), pInitValue);
+						pExpr = (!bInitValueIsStruct ? new CExpr(getRealScope(), pInitValue) : new CExpr2(getRealScope(), pInitValue));
 						m_bFlow |= pExpr->isFlow();
 					}
 					else
@@ -7554,10 +7547,10 @@ void CClassDef::analyzeClassDef(const ClassBaseTypeDefVector& classBaseTypeDefs,
 				// therefore, we cannot analyze this sub class until all methods of the main class have been gone through.
 				if (defType == DEF_TYPE_SUPER_TYPE_VAR_DEF)
 				{
-					SourceTreeNode* pSuperTypeNode;
+					SourceTreeNode* pSuperTypeNode, *pDefVarTailNode;
 					StringVector mod_strings;
 					void* remain_block;
-					defSuperTypeVarDefGetInfo(pNode, mod_strings, pSuperTypeNode, remain_block);
+					defSuperTypeVarDefGetInfo(pNode, mod_strings, pSuperTypeNode, pDefVarTailNode);
 
 					SuperTypeType super_type;
 					SourceTreeNode* pChildNode;
@@ -9018,7 +9011,7 @@ CTemplate* CTemplate::analyzeSpecializedClass(const std::vector<void*>& header_t
 		throw(std::string("It has ") + ltoa(specializedTypeCount) + " specialized type parameters but this template only accept " + ltoa(m_typeParams.size()));
 
 	CTemplate* pSpecializedTemplate = new CTemplate(this, m_nTemplateType, m_name);
-	TRACE2("\nCREATING sepcialized TEMPLATE %s\n", pSpecializedTemplate->getDebugPath().c_str());
+	TRACE2("\nCREATING specialized TEMPLATE %s\n", pSpecializedTemplate->getDebugPath().c_str());
 	pSpecializedTemplate->readTemplateHeaderIntoTypeParams(header_types); // sometimes typeParam defines different than the root one
 
 	// composing uniqueId, replace typeNames with standard names.
@@ -11247,7 +11240,7 @@ std::string CFunction::toString(int depth)
 
 CNamespace::CNamespace(CScope* pParent, bool bRealScope, bool bIsNamespace, const std::string& name) : CScope(pParent)
 {
-	TRACE2("Create CNamespace %s(%lx) under %s, bRealScope=%d, bNamespace=%d in %s:%d\n", name.c_str(), long(this), (pParent ? pParent->getDebugPath().c_str() : ""), bRealScope, bIsNamespace, g_cur_file_stack.back().c_str(), g_cur_line_no);
+	TRACE2("Create CNamespace %s(%lx) under %s, bRealScope=%d, bNamespace=%d in %s:%d\n", name.c_str(), long(this), (pParent ? pParent->getDebugPath().c_str() : ""), bRealScope, bIsNamespace, (g_cur_file_stack.empty() ? "" : g_cur_file_stack.back().c_str()), g_cur_line_no);
 
 	MY_ASSERT(pParent == NULL || pParent->getGoType() == GO_TYPE_NAMESPACE);
 	if (pParent == NULL)
@@ -11540,6 +11533,7 @@ std::string CNamespace::toString(int depth)
 		StringVector file_stack2 = pObject->getDefFileStack();
 		MY_ASSERT(isStringVectorPrefix(m_file_stack, file_stack2));
 
+#ifdef MERGE_INCLUDE_FILE
 		if (pObject->isTransformed() || m_file_stack.size() == file_stack2.size())
 		{
 			ret_s += ret_s2 + tmp_s;
@@ -11564,6 +11558,9 @@ std::string CNamespace::toString(int depth)
 				}
 			}
 		}
+#else
+		ret_s += ret_s2 + tmp_s;
+#endif
 	}
 	if (!sub_include_file.empty())
 		ret_s += ret_s2;
@@ -11698,7 +11695,7 @@ CNamespace* semanticAnalyzeFile(char* file_name, int argc, char* argv[])
 	{
 		fprintf(stderr, "Error in %s:%d, %s\n", g_cur_file_stack.back().c_str(), g_cur_line_no, err_s.c_str());
 		MY_ASSERT(false);
-		return NULL;
+		exit(0);
 	}
 
 	leaveScope();

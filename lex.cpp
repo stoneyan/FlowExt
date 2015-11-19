@@ -12,6 +12,7 @@ bool g_log_lex = false;
 const std::string LEXER_PARAM_EMPTY = "_P1P1P_";
 const std::string LEXER_PARAM_COMMA = "_P1P1P_COMMA";
 
+//#define WRITE_LOGFILE
 #define TRACE  if (g_log_lex) printf
 
 uint64_t get_cur_tick()
@@ -148,16 +149,22 @@ FILE* g_fp = NULL;
 
 void write_log(const char* format, ...)
 {
+#ifdef WRITE_LOGFILE
 	if (!g_fp)
 		g_fp = fopen("./tmp.log", "wt");
 
     va_list argList;
     va_start(argList, format);
-    //vfprintf(g_fp, format, argList);
+    vfprintf(g_fp, format, argList);
     vprintf(format, argList);
 
 	va_end(argList);
 	//fflush(g_fp);
+#else
+    va_list argList;
+    va_start(argList, format);
+    vprintf(format, argList);
+#endif
 }
 
 CLexer::CLexer()
@@ -585,18 +592,20 @@ StringVector CLexer::get_file_stack()
 	{
 		for (std::vector<SourceFile>::iterator it = m_file_list.begin(); it != m_file_list.end(); it++)
 		{
-			size_t pos = it->file_name.find('-');
+			//size_t pos = it->file_name.find('-');
 			//MY_ASSERT(pos == std::string::npos);
-			ret_v.push_back(it->file_name.substr(0, pos));
+			//ret_v.push_back(it->file_name.substr(0, pos));
+			ret_v.push_back(it->file_name);
 		}
 	}
 	else
 	{
 		for (StringVector::iterator it = m_file_stack.begin(); it != m_file_stack.end(); it++)
 		{
-			size_t pos = it->find('-');
+			//size_t pos = it->find('-');
 			//MY_ASSERT(pos == std::string::npos);
-			ret_v.push_back(it->substr(0, pos));
+			//ret_v.push_back(it->substr(0, pos));
+			ret_v.push_back(*it);
 		}
 	}
 	return ret_v;
@@ -2136,7 +2145,7 @@ std::string CLexer::read_word(bool bFromExternal)
                 if (i > 0)
                     s += "|";
 
-                s += m_file_list[i].file_name + "-" + ltoa(m_file_list[i].row);
+                s += m_file_list[i].file_name; // + "-" + ltoa(m_file_list[i].row);
             }
             last_row = m_file_list.back().row;
             s += std::string("@") + ltoa(last_row);

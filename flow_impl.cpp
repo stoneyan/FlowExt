@@ -16,7 +16,7 @@ struct __FlowBlock
 	__FlowBlock*			next_flow;
 	__FlowBlock*			prev_flow;
 	__FlowBlock*			sub_flows;
-	__FLOW_FUNCTION_BLOCK*	cur_stack;
+	__FLOW_FUNC_BLOCK*		cur_stack;
 	FLOW_OBJECT*			first_waiting_object;
 	unsigned long			stack_allocated;
 	unsigned long			stack_used;
@@ -57,7 +57,7 @@ void flow_signal(FLOW_OBJECT* pObj, void* param)
 bool __flow_wait(FLOW_OBJECT* pObj, FLOW_FUNC callback_func, unsigned signal, void* callback_data, void** param)
 {
 	TRACE2("__flow_wait, pObj=0x%lx, ", (unsigned long)pObj);
-	__FLOW_FUNCTION_BLOCK* pCallingBlock = (__FLOW_FUNCTION_BLOCK*)callback_data;
+	__FLOW_FUNC_BLOCK* pCallingBlock = (__FLOW_FUNC_BLOCK*)callback_data;
 
   	if (pObj->value)
   	{
@@ -69,7 +69,7 @@ bool __flow_wait(FLOW_OBJECT* pObj, FLOW_FUNC callback_func, unsigned signal, vo
   	}
 
 	TRACE("not signaled, wait\n");
-	__FlowBlock* pCallingFlow = (__FlowBlock*)pCallingBlock->flow_block;
+	__FlowBlock* pCallingFlow = (__FlowBlock*)pCallingBlock->this_flow;
 	pObj->next_waiting_obj = pCallingFlow->first_waiting_object;
 	if (pCallingFlow->first_waiting_object)
 		pCallingFlow->first_waiting_object->prev_waiting_obj = pObj;
@@ -131,9 +131,9 @@ void* __flow_func_enter(void* flow, FLOW_FUNC caller_func, void* caller_data, un
 
 	__flow_assert(pFlow->cur_stack == NULL || caller_data == pFlow->cur_stack);
 	__flow_assert(pFlow->stack_used + block_size < pFlow->stack_allocated);
-	__FLOW_FUNCTION_BLOCK* pFuncBlock = (__FLOW_FUNCTION_BLOCK*)(pFlow->stack + pFlow->stack_used);
+	__FLOW_FUNC_BLOCK* pFuncBlock = (__FLOW_FUNC_BLOCK*)(pFlow->stack + pFlow->stack_used);
 	TRACE2("__flow_func_enter, flow=0x%lx, parent=0x%lx, func=0x%lx\n", (long)flow, (long)caller_data, (long)pFuncBlock);
-	pFuncBlock->flow_block = pFlow;
+	pFuncBlock->this_flow = pFlow;
 	pFuncBlock->this_func = NULL;
 	pFuncBlock->caller_func = caller_func;
 	pFuncBlock->caller_data = caller_data;
@@ -160,12 +160,12 @@ void __flow_func_leave(void* flow, void* func_data)
 {
 	TRACE2("__flow_func_leave, flow=0x%lx, func=0x%lx\n", (long)flow, (long)func_data);
 	__FlowBlock* pFlow = (__FlowBlock*)flow;
-	__FLOW_FUNCTION_BLOCK* pFuncBlock = (__FLOW_FUNCTION_BLOCK*)func_data;
+	__FLOW_FUNC_BLOCK* pFuncBlock = (__FLOW_FUNC_BLOCK*)func_data;
 
 	__flow_assert(pFuncBlock == pFlow->cur_stack);
 
 	pFlow->stack_used = (char*)pFuncBlock - pFlow->stack;
-	pFlow->cur_stack = (__FLOW_FUNCTION_BLOCK*)pFuncBlock->caller_data;
+	pFlow->cur_stack = (__FLOW_FUNC_BLOCK*)pFuncBlock->caller_data;
 }
 
 // delete the whole stack, all sub_flows, remove itself from parent flow
@@ -182,7 +182,7 @@ void __flow_end(void* flow)
 
 	while (pFlow->cur_stack)
 	{
-		__FLOW_FUNCTION_BLOCK* pPrevStack = (__FLOW_FUNCTION_BLOCK*)pFlow->cur_stack->caller_data;
+		__FLOW_FUNC_BLOCK* pPrevStack = (__FLOW_FUNC_BLOCK*)pFlow->cur_stack->caller_data;
 		TRACE2("__flow_end, flow=0x%lx, delete func=0x%lx, parent=0x%lx\n", (long)flow, (long)pFlow->cur_stack, (long)pPrevStack);
 		if (pFlow->cur_stack->this_func)
 			pFlow->cur_stack->this_func(__FLOW_CALL_SIGNAL_DELETE_OBJECT, pFlow->cur_stack);

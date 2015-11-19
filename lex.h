@@ -17,7 +17,11 @@ typedef std::set<std::string> StringSet;
 
 typedef unsigned long long uint64_t;
 
+#ifdef _DEBUG
 #define MY_ASSERT(x)	do { if (!(x)) abort(); } while (false)
+#else
+#define MY_ASSERT(x)	do {} while (false)
+#endif
 void fatal_error(const char* format, ...);
 char* ltoa(long v);
 StringVector str_explode(const std::string& str, const std::string& delim);

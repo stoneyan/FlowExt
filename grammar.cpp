@@ -29,6 +29,7 @@
  * '(' % %), ':' % %~{: save to a block which will be analyzed later
  *
  * *[], +[], repeat 0+ or 1+ times. may provide seperator. '>,' means seperator ',' doesn't count in '<>', '!,' means don't split before analyze
+ * $[...,';'] means search for ';' and analyze the grammar before it.
  * ^O, the one
  * ^N, don't do type check
  * when analyzing start, defs or a statement, it will search for a block which ends with ';' or '{}'. 
@@ -78,21 +79,21 @@ const char* g_grammar_str = "\
 						|@2 expr '(' *[expr, '!,'] ')' |@2 scope 'operator' operator '(' ?[expr] ')' |@2 expr '[' expr ']' \\\n\
 						|@3 expr '++' |@3 expr '--' |@3 '++' expr |@3 '--' expr |@3 '+' expr |@3 '-' expr |@3 '!' expr |@3 '~' expr |@3 '(' extended_or_func_type ')' expr \\\n\
 						|@3 '*' expr |@3 '&' expr |@3 'sizeof' '(' (extended_type_var | func_type | expr) ')' \\\n\
-                        |@3 scope 'new' extended_type_var |@3 scope 'new' user_def_type '(' expr2 ')' |@3 scope 'new' '(' expr ')' ?[ user_def_type ?[ '(' expr2 ')' ] ] \\\n\
+						|@3 scope 'new' ?( extended_type_var ) |@3 scope 'new' user_def_type '(' expr2 ')' |@3 scope 'new' '(' expr ')' ?[ user_def_type ?[ '(' expr2 ')' ] ] \\\n\
                         |@3 scope 'delete' ?['[' ']'] expr \\\n\
 						|@5 expr '*' expr |@5 expr '/' expr |@5 expr '%' expr \\\n\
 						|@6 expr '+' expr |@6 expr '-' expr |@7 expr '<<' expr |@7 expr '>>' expr \\\n\
 						|@8 expr '<' expr |@8 expr '<=' expr |@8 expr '>' expr |@8 expr '>=' expr \\\n\
 						|@9 expr '==' expr |@9 expr '!=' expr \\\n\
 						|@10 expr '&' expr	|@11 expr '^' expr |@12 expr '|' expr |@13 expr '&&' expr |@14 expr '||' expr  \\\n\
-						|@15 expr '?' expr ':' expr |@15 expr '=' expr |@15 expr '+=' expr |@15 expr '-=' expr |@15 expr '*=' expr |@15 expr '/=' expr |@15 expr '%=' expr |@15 expr '<<=' expr |@15 expr '>>=' expr |@15 expr '&=' expr |@15 expr '^=' expr |@15 expr '|=' expr \\\n\
+						|@15 expr '?' expr ':' expr |@15 expr '=' expr |@15 expr '=' '{' expr2 '}' |@15 expr '+=' expr |@15 expr '-=' expr |@15 expr '*=' expr |@15 expr '/=' expr |@15 expr '%=' expr |@15 expr '<<=' expr |@15 expr '>>=' expr |@15 expr '&=' expr |@15 expr '^=' expr |@15 expr '|=' expr \\\n\
 						|@16 'throw' ?[expr] | const_value | ?[('__real__' | '__imag__')] token_with_namespace | type '(' expr2 ')' | '(' expr2 ')' \\\n\
 						| builtin_type_funcs '(' type ')' | '__is_base_of' '(' type ',' type ')' \\\n\
 						| 'const_cast' '<' extended_or_func_type '>' '(' expr ')' | 'static_cast' '<' extended_or_func_type '>' '(' expr ')' | 'dynamic_cast' '<' extended_or_func_type '>' '(' expr ')' | 'reinterpret_cast' '<' extended_or_func_type '>' '(' expr ')' | '__extension__' expr \\\n\
 						; \\\n\
 	expr2			    : *[expr, '!,']; \\\n\
 	decl_obj_var		: token '(' +[expr, ','] ')' ; \\\n\
-	decl_c_var		    : ?['__restrict'] decl_var ?[ '=' expr] ; \\\n\
+	decl_c_var		    : ?['__restrict'] decl_var ?[ '=' ( expr | '{' expr2 '}' ) ] ; \\\n\
 	decl_c_obj_var	    : decl_c_var | decl_obj_var ; \\\n\
     expr_or_decl_var    : expr2 | type +[decl_c_obj_var, ','] ; \\\n\
 	func_param          : type_nocheck *[func_modifier2] ?[const] ?[ decl_var ?[ '=' %[expr, ',|)'] ] ?[attribute] ] | func_type ;  \\\n\
@@ -115,13 +116,13 @@ const char* g_grammar_str = "\
                         | class_struct_union *[common_modifier] token ^O ';' \\\n\
 						| ^O 'using' ?['namespace'] scope (token | 'operator' operator) ';' \\\n\
 						| *[ext_modifier] ^O 'typedef' (type +[decl_var, ','] ?[attribute] ^O ';' | \\\n\
-                                                           ^O super_type extra_block | \\\n\
+						                                   ^O super_type $[def_var_tail, ';'] | \\\n\
                                                            extended_type '(' scope '*' token ')' ^O ';' | \\\n\
 														   extended_type ?( *[func_modifier2] token ) '(' func_params ')' ^O ';' | \\\n\
                                                            func_type ^O ';' | \\\n\
                                                            ^O '__typeof__' '(' (extended_type | expr) ')' token ';' ) \\\n\
-						| *[member_modifier] type def_var_tail \\\n\
-						| *[member_modifier] super_type extra_block \\\n\
+						| $[ *[member_modifier] type def_var_tail, ';'] \\\n\
+						| $[ *[member_modifier] super_type def_var_tail, ';'] \\\n\
 						| func_header ?['__asm' '(' const_value ')'] *[attribute] (?['=' '0'] ^O ';' | ?[ ':' %[class_base_inits, '{'] ] ^O '{' %[statement, '}'] '}') \\\n\
 						| *[member_modifier] func_type *['[' expr ']'] ^O ';' \\\n\
 						| ?[ext_modifier] +['template' < %[template_type_defs] > ] ( ^O class_struct_union extra_block2 | extra_block ) \\\n\
@@ -1429,6 +1430,7 @@ bool extendedTypePointerIsConst(const SourceTreeNode* pRoot, int depth) // is th
 	return pRoot->pChild->param != 0;
 }
 
+// extended_type		: type *[?[const] '*' ?['__ptr64'] ] *[data_type_modifier] ?['&'];
 bool extendedTypePointerIsPtr64(const SourceTreeNode* pRoot, int depth) // is the layer of the given depth a pointer or a const pointer?
 {
 	pRoot = pRoot->pNext;
@@ -1491,7 +1493,8 @@ void extendedTypeAddModifier(SourceTreeNode* pRoot, DeclVarModifierType mod)
 		pNode = createEmptyNode();
 		pNode->pChild = createEmptyNode();
 		if (mod == DVMOD_TYPE_CONST_POINTER)
-		    pNode->pChild->pChild->param = 1;
+		    pNode->pChild->param = 1;
+	    pNode->pChild->pNext = createEmptyNode();
 		pNode->param = pRoot->param;
 		pRoot->param++;
 		if (pRoot->pChild == NULL)
@@ -2385,8 +2388,8 @@ void declVarChangeName(SourceTreeNode* pRoot, const std::string& new_name)
 	pRoot->pChild->pNext->value = new_name;
 }
 
-//decl_c_var		  : ?['__restrict'] decl_var ?[ '=' expr] ;
-void declCVarGetInfo(const SourceTreeNode* pRoot, bool& bRestrict, SourceTreeNode*& pVar, SourceTreeNode*& pInitValue) // pVar: decl_var, pInitValue: expr
+// decl_c_var		    : ?['__restrict'] decl_var ?[ '=' ( expr | '{' expr2 '}' ) ] ;
+void declCVarGetInfo(const SourceTreeNode* pRoot, bool& bRestrict, SourceTreeNode*& pVar, SourceTreeNode*& pInitValue, bool& bInitValueIsStruct) // pVar: decl_var, pInitValue: expr
 {
 	bRestrict = (pRoot->param > 0);
 	pRoot = pRoot->pNext;
@@ -2396,7 +2399,11 @@ void declCVarGetInfo(const SourceTreeNode* pRoot, bool& bRestrict, SourceTreeNod
 
 	pInitValue = NULL;
 	if (pRoot->param)
+	{
+		pRoot = pRoot->pChild->pChild;
+		bInitValueIsStruct = (pRoot->param != 0);
 		pInitValue = pRoot->pChild->pChild;
+	}
 }
 
 //decl_obj_var		: token '(' *[expr, ','] ')' ;
@@ -2502,48 +2509,50 @@ ExprType exprGetType(const SourceTreeNode* pRoot)
 	case 40:
 		return EXPR_TYPE_ASSIGN;
 	case 41:
-		return EXPR_TYPE_ADD_ASSIGN;
+		return EXPR_TYPE_ASSIGN_STRUCT;
 	case 42:
-		return EXPR_TYPE_SUBTRACT_ASSIGN;
+		return EXPR_TYPE_ADD_ASSIGN;
 	case 43:
-		return EXPR_TYPE_MULTIPLE_ASSIGN;
+		return EXPR_TYPE_SUBTRACT_ASSIGN;
 	case 44:
-		return EXPR_TYPE_DIVIDE_ASSIGN;
+		return EXPR_TYPE_MULTIPLE_ASSIGN;
 	case 45:
-		return EXPR_TYPE_REMAINDER_ASSIGN;
+		return EXPR_TYPE_DIVIDE_ASSIGN;
 	case 46:
-		return EXPR_TYPE_LEFT_SHIFT_ASSIGN;
+		return EXPR_TYPE_REMAINDER_ASSIGN;
 	case 47:
-		return EXPR_TYPE_RIGHT_SHIFT_ASSIGN;
+		return EXPR_TYPE_LEFT_SHIFT_ASSIGN;
 	case 48:
-		return EXPR_TYPE_BIT_AND_ASSIGN;
+		return EXPR_TYPE_RIGHT_SHIFT_ASSIGN;
 	case 49:
-		return EXPR_TYPE_BIT_XOR_ASSIGN;
+		return EXPR_TYPE_BIT_AND_ASSIGN;
 	case 50:
-		return EXPR_TYPE_BIT_OR_ASSIGN;
+		return EXPR_TYPE_BIT_XOR_ASSIGN;
 	case 51:
-		return EXPR_TYPE_THROW;
+		return EXPR_TYPE_BIT_OR_ASSIGN;
 	case 52:
-		return EXPR_TYPE_CONST_VALUE;
+		return EXPR_TYPE_THROW;
 	case 53:
+		return EXPR_TYPE_CONST_VALUE;
+	case 54:
 		return EXPR_TYPE_TOKEN_WITH_NAMESPACE;
-    case 54:
+    case 55:
         return EXPR_TYPE_TYPE_CONSTRUCT;
-	case 55:
+	case 56:
 		return EXPR_TYPE_PARENTHESIS;
-    case 56:
-        return EXPR_TYPE_BUILTIN_TYPE_FUNC;
     case 57:
-        return EXPR_TYPE_IS_BASE_OF;
+        return EXPR_TYPE_BUILTIN_TYPE_FUNC;
     case 58:
-        return EXPR_TYPE_CONST_CAST;
+        return EXPR_TYPE_IS_BASE_OF;
     case 59:
-        return EXPR_TYPE_STATIC_CAST;
+        return EXPR_TYPE_CONST_CAST;
     case 60:
-        return EXPR_TYPE_DYNAMIC_CAST;
+        return EXPR_TYPE_STATIC_CAST;
     case 61:
-        return EXPR_TYPE_REINTERPRET_CAST;
+        return EXPR_TYPE_DYNAMIC_CAST;
     case 62:
+        return EXPR_TYPE_REINTERPRET_CAST;
+    case 63:
         return EXPR_TYPE_EXTENSION;
 	}
     MY_ASSERT(false);
@@ -3243,7 +3252,7 @@ void defTypedefDataGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pType, 
 		attribute.push_back(attributeModifierGetString(pRoot->pChild->pChild));
 }
 
-void defTypedefSuperTypeGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pSuperType, void*& bracket_block)
+void defTypedefSuperTypeGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pSuperType, SourceTreeNode*& pDefVarTailNode)
 {
 	StringVector mod_strings;
 	MY_ASSERT(defTypedefGetBasicInfo(pRoot, mod_strings) == TYPEDEF_TYPE_SUPER_TYPE);
@@ -3252,8 +3261,7 @@ void defTypedefSuperTypeGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pS
 	pSuperType = pRoot->pChild;
 	pRoot = pRoot->pNext;
 
-	MY_ASSERT(pRoot->param == SOURCE_NODE_TYPE_BIG_BRACKET);
-	bracket_block = pRoot->ptr;
+	pDefVarTailNode = pRoot->pChild;
 }
 
 //extended_type '(' scope '*' token ')'
@@ -3427,10 +3435,9 @@ void defVarDefGetInfo(const SourceTreeNode* pRoot, StringVector& mod_strings, So
 	pRoot = pRoot->pNext;
 
 	pDefVarTailNode = pRoot->pChild;
-	pRoot = pRoot->pNext;
 }
 
-void defSuperTypeVarDefGetInfo(const SourceTreeNode* pRoot, StringVector& mod_strings, SourceTreeNode*& pSuperType, void*& bracket_block)
+void defSuperTypeVarDefGetInfo(const SourceTreeNode* pRoot, StringVector& mod_strings, SourceTreeNode*& pSuperType, SourceTreeNode*& pDefVarTailNode)
 {
 	MY_ASSERT(defGetType(pRoot) == DEF_TYPE_SUPER_TYPE_VAR_DEF);
 	pRoot = pRoot->pChild;
@@ -3442,8 +3449,7 @@ void defSuperTypeVarDefGetInfo(const SourceTreeNode* pRoot, StringVector& mod_st
 	pSuperType = pRoot->pChild;
 	pRoot = pRoot->pNext;
 
-	MY_ASSERT(pRoot->param == SOURCE_NODE_TYPE_BIG_BRACKET);
-	bracket_block = pRoot->ptr;
+	pDefVarTailNode = pRoot->pChild;
 }
 
 void defVarDefChangeVarName(SourceTreeNode* pRoot, const std::string& old_name, const std::string& new_name)
@@ -4536,7 +4542,7 @@ std::string displaySourceTreeClassDefBody(const SourceTreeNode* pRoot, int depth
 	return ret_s;
 }*/
 
-// extended_type	   : type *[?[const] '*'] ?[const] ?['&'];
+// extended_type		: type *[?[const] '*' ?['__ptr64'] ] *[data_type_modifier] ?['&'];
 std::string displaySourceTreeExtendedType(const SourceTreeNode* pRoot, int depth)
 {
 	std::string ret_s;
@@ -4697,14 +4703,14 @@ std::string displaySourceTreeDeclCVar(const SourceTreeNode* pRoot)
 {
 	std::string ret_s;
 
-	bool bRestrict;
+	bool bRestrict, bInitValueIsStruct;
 	SourceTreeNode* pDeclVar, *pInitValue;
-	declCVarGetInfo(pRoot, bRestrict, pDeclVar, pInitValue);
+	declCVarGetInfo(pRoot, bRestrict, pDeclVar, pInitValue, bInitValueIsStruct);
 	if (bRestrict)
 		ret_s += "__restrict ";
 	ret_s += displaySourceTreeDeclVar(pDeclVar);
 	if (pInitValue)
-		ret_s += " = " + displaySourceTreeExpr(pInitValue);
+		ret_s += " = " + (!bInitValueIsStruct ? displaySourceTreeExpr(pInitValue) : "{" + displaySourceTreeExpr2(pInitValue) + "}");
 
 	return ret_s;
 }
@@ -5027,11 +5033,11 @@ std::string displaySourceTreeExpr(const SourceTreeNode* pRoot)
 		ret_s += ")";
 		break;
 	}
-	case EXPR_TYPE_NEW_C: // scope 'new' extended_type_var
+	case EXPR_TYPE_NEW_C: // scope 'new' ?( extended_type_var )
 	{
 	    TokenWithNamespace twn = scopeGetInfo(exprGetFirstNode(pRoot));
 	    twn.addScope("new", false);
-	    ret_s += twn.toString() + " " + displaySourceTreeExtendedTypeVar(exprGetSecondNode(pRoot));
+	    ret_s += twn.toString() + " " + displaySourceTreeExtendedTypeVar(exprGetSecondNode(pRoot)->pChild);
 		break;
 	}
 	case EXPR_TYPE_NEW_OBJECT: // scope 'new' user_def_type '(' expr2 ')'
@@ -5188,6 +5194,12 @@ std::string displaySourceTreeExpr(const SourceTreeNode* pRoot)
 		ret_s += displaySourceTreeExpr(pRoot->pChild->pChild);
 		ret_s += "=";
 		ret_s += displaySourceTreeExpr(pRoot->pChild->pNext->pChild);
+		break;
+	case EXPR_TYPE_ASSIGN_STRUCT:
+		ret_s += displaySourceTreeExpr(pRoot->pChild->pChild);
+		ret_s += "= {";
+		ret_s += displaySourceTreeExpr2(pRoot->pChild->pNext->pChild);
+		ret_s += "}";
 		break;
 	case EXPR_TYPE_ADD_ASSIGN:
 		ret_s += displaySourceTreeExpr(pRoot->pChild->pChild);
@@ -6125,7 +6137,7 @@ std::string CGrammarAnalyzer::readOneGrammarRule(CLexer& grammar_lexer, GrammarT
 			if (pNode->children == NULL)
 				return "An empty grammar rule is found but not allowed";
 		}
-		else if (s == "?" || s == "*" || s == "+" || s == "%")
+		else if (s == "?" || s == "*" || s == "+" || s == "%" || s == "$")
 		{
 			pNode->name = s;
 			std::string param = grammar_lexer.read_word_without_comment();
@@ -6134,8 +6146,8 @@ std::string CGrammarAnalyzer::readOneGrammarRule(CLexer& grammar_lexer, GrammarT
 			if (param == "(")
 			{
 			    pNode->param = param;
-			    if (s == "%")
-			        return "'%' cannot be followed by '('";
+			    if (s == "%" || s == "$")
+			        return "'" + s + "' cannot be followed by '('";
 			}
 			std::string end_s = (param == "[" ? "]" : ")");
 			short priority2, attrib2;
@@ -6220,7 +6232,7 @@ void CGrammarAnalyzer::printGrammarRules2(GrammarTreeNode* pRoot)
 		printGrammarRules2(pRoot->children);
 		printf(" } ");
 	}
-	else if (pRoot->name == "?" || pRoot->name == "*" || pRoot->name == "+" || pRoot->name == "%")
+	else if (pRoot->name == "?" || pRoot->name == "*" || pRoot->name == "+" || pRoot->name == "%" || pRoot->name == "$")
 	{
 	    if (pRoot->param == "(")
 	    {
@@ -7318,6 +7330,40 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 			pSourceNode->ptr = pBlock;
 			TRACE2("***%[] tail found at %d\n", n);
 		}
+		else if (name == "$")
+		{
+			MY_ASSERT((flags & ANALYZE_FLAG_BIT_REVERSE_ANALYZE) == 0);
+
+			std::string end_kw = pGrammar->param.substr(1, pGrammar->param.size() - 2);
+			int start_n = n, depth = 0;
+			while (true)
+			{
+				s = grammar_read_word(n, end_n);
+				if (s.empty())
+				{
+					TRACE2("cannot find '%s' after %d\n", end_kw.c_str(), start_n);
+					return -1;
+				}
+				if (depth == 0 && s == end_kw)
+					break;
+
+				if (s == "(" || s == "[" || s == "{")
+					depth++;
+				else if (s == ")" || s == "]" || s == "}")
+				{
+					MY_ASSERT(depth > 0);
+					depth--;
+				}
+			}
+			TRACE2("found '%s' at %d\n", end_kw.c_str(), n);
+			int j = AnalyzeGrammar2(analyze_path, pGrammar->children, NULL, start_n, n, (pGrammar->next == pGrammarEnd) && bNoMoreGrammar, tempDefMap, pBlockRoot, pSourceParent, flags);
+			if (j < 0 || j != n)
+			{
+				TRACE2("$ returns %d not %d\n", j, n);
+				n = -1;
+				break;
+			}
+		}
 		else if (name == "?")
 		{
 			pSourceNode = createEmptyNode();
@@ -7809,11 +7855,12 @@ SourceTreeNode* CGrammarAnalyzer::getBlock(StringVector* pBlockData /* = NULL*/,
     try
     {
 		if (pGrammarRoot == s_grammar_map["start"] || pGrammarRoot == s_grammar_map["statement"] || 
-			pGrammarRoot == s_grammar_map["defs"] || pGrammarRoot == s_grammar_map["def_var_tail"])
+			pGrammarRoot == s_grammar_map["defs"])
 		{
-			n = findEndOfStatement(0, m_end_n);
-			if (n < 0)
-				throw("Cannot find ';' or end of '}'");
+			// search more for safety
+			n = findEndOfStatement(0, m_end_n, true);
+			//if (n < 0)
+			//	throw("Cannot find ';' or end of '}'");
 			TRACE2("found end of statement at %d, start analyzing\n", n);
 		}
 		else
@@ -7853,6 +7900,7 @@ SourceTreeNode* CGrammarAnalyzer::getBlock(StringVector* pBlockData /* = NULL*/,
     {
         fprintf(stderr, "\nAnalyze failed: %s\n", s.c_str());
         MY_ASSERT(false);
+		exit(0);
         deleteSourceTreeNode(pSourceRoot);
         m_context = pOrigContext;
         return NULL;

@@ -2404,6 +2404,7 @@ void AnalyzeFile(char* file_name, char* dest_path, int argc, char* argv[])
 
 int main(int argc, char* argv[])
 {
+#if 0
 #ifdef _WIN32
 	StringVector include_paths = get_sys_include_path();
 	if (include_paths.empty())
@@ -2411,6 +2412,7 @@ int main(int argc, char* argv[])
 		printf("\n\nCannot find INCLUDE environment variable\n");
 		return 1;
 	}
+#endif
 #endif
 	if (argc != 3)
 	{

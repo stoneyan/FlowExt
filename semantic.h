@@ -123,10 +123,10 @@ public:
     void setDefLocation(const StringVector& file_stack, int line_no) { 
 		m_file_stack = file_stack; m_line_no = line_no; 
 	}
-    const std::string& getDefFileName() { return m_file_stack.back(); }
+    const std::string getDefFileName() { return m_file_stack.empty() ? "" : m_file_stack.back(); }
     const StringVector& getDefFileStack() { return m_file_stack; }
     int getDefLineNo() { return m_line_no; }
-    std::string definedIn() { return m_file_stack.back() + ":" + ltoa(m_line_no);}
+    std::string definedIn() { return (m_file_stack.empty() ? std::string("") : m_file_stack.back()) + ":" + ltoa(m_line_no);}
 
     // return NULL if not in a tmeplate
     CScope* getParentScope(GrammarObjectType go_type);
@@ -174,6 +174,7 @@ public:
 	void setType(SemanticDataType newType) { m_type = newType; }
 	//int getModifierBits() { return m_modifier_bits; }
 	bool isBaseType() { return !m_pBaseTypeDef; }
+	TypeDefPointer sharedFromThis() { return m_shared_from_this; }
 	TypeDefPointer getBaseType() { return m_pBaseTypeDef ? m_pBaseTypeDef : m_shared_from_this; }
     CClassDef* getClassDef() { return (CClassDef*)m_pSpecialType; }
     CTemplate* getTemplate() { return (CTemplate*)m_pSpecialType; }
@@ -218,7 +219,8 @@ public:
 	void setDisplayFlag(bool bFlag = true) { m_display_flag = bFlag; }
 	void setFuncReturnTypeNode(SourceTreeNode* pReturnTypeNode) { m_pFuncReturnTypeNode = pReturnTypeNode; }
     int checkCallParams(const std::vector<TypeDefPointer>& typeList, bool bCallerIsConst);
-	StringVector& getModStrings() { return m_mod_strings; }
+	const StringVector& getModStrings() { return m_mod_strings; }
+	const StringVector& getBasicTokens() { MY_ASSERT(getType() == SEMANTIC_TYPE_BASIC); return m_basic_tokens; }
 
 	virtual std::string toString(int depth = 0);
 	std::string toFuncString(const std::string& name);
@@ -741,7 +743,7 @@ typedef std::vector<CExpr*> ExprVector;
 class CExpr2 : public CExpr
 {
 public:
-    CExpr2(CScope* pParent);
+    CExpr2(CScope* pParent, const SourceTreeNode* pRoot = NULL);
     virtual ~CExpr2();
 
     virtual GrammarObjectType getGoType() { return GO_TYPE_EXPR2; }
