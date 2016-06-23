@@ -189,7 +189,7 @@ void moveVarUnderParentInExpr(CExpr* pExpr, const std::string& parent_name, cons
 		return;
 	}
 
-	for (int i = 0; i < pExpr->getChildrenCount(); i++)
+	for (unsigned i = 0; i < pExpr->getChildrenCount(); i++)
 	{
 		CExpr* pExpr2 = (CExpr*)pExpr->getChildAt(i);
 		MY_ASSERT(pExpr2->getGoType() == GO_TYPE_EXPR || pExpr2->getGoType() == GO_TYPE_EXPR2);
@@ -214,7 +214,7 @@ void moveVarUnderParentInStatement(CStatement* pStatement, const std::string& pa
 	}
 	default:
 	{
-		for (int i = 0; i < pStatement->getChildrenCount(); i++)
+		for (unsigned i = 0; i < pStatement->getChildrenCount(); i++)
 		{
 			CScope* pObj = pStatement->getChildAt(i);
 			if (!pObj)
@@ -494,7 +494,7 @@ void CMyFunc::checkExprDecompose(ScopeVector& ret_v, CExpr*& pExpr, unsigned& in
 			param_v.push_back(new CExpr(NULL, EXPR_TYPE_REF_ELEMENT,
 					new CExpr(NULL, EXPR_TYPE_PTR_ELEMENT, new CExpr(NULL, EXPR_TYPE_TOKEN_WITH_NAMESPACE, LOCALVAR_NAME), FLOW_BASIC_MEMBER_NAME),
 					FLOW_BASIC_FLOW_MEMBER_NAME));
-			param_v.push_back(new CExpr(NULL, EXPR_TYPE_TOKEN_WITH_NAMESPACE, (m_pFunc->getParent()->getGoType() == GO_TYPE_CLASS ? 
+			param_v.push_back(new CExpr(NULL, EXPR_TYPE_TOKEN_WITH_NAMESPACE, (m_pFunc->getFuncDeclare()->getParent()->getGoType() == GO_TYPE_CLASS ? 
 					FLOW_STATIC_METHOD_PREFIX + pScope->getFunctionScope()->getName() : 
 					pScope->getFunctionScope()->getName()
 				)));
@@ -562,8 +562,8 @@ void CMyFunc::checkExprDecompose(ScopeVector& ret_v, CExpr*& pExpr, unsigned& in
 						new CExpr(NULL, EXPR_TYPE_PTR_ELEMENT,
 							new CExpr(NULL, EXPR_TYPE_TOKEN_WITH_NAMESPACE, LOCALVAR_NAME),
 							pStruVarName),
-					pVarDef->getName()),
-					pVarDef->getInitExpr())));
+						pVarDef->getName()),
+					CExpr::copyExpr(pVarDef->getInitExpr()))));
 			}
 
 			// if (!func(signal_first_enter, pFuncVar->pTempVar)) return false;
@@ -765,7 +765,7 @@ void CMyFunc::checkStatementDecompose(ScopeVector& ret_v, CStatement* pStatement
 					declVarAddModifier(pVarNode, DVMOD_TYPE_INTERNAL_POINTER);
 				}
 				MY_ASSERT(!pVarType->isReference());
-				MY_ASSERT(!declVarIsReference(pVarNode));
+				MY_ASSERT(!declVarGetReferenceCount(pVarNode));
 				CVarDef* pVarDef2 = new CVarDef(pVarDef->getParent(), pVarDef->getName(), pVarType, pVarNode);
 				pStatement2 = new CStatement(m_pStructTypeDef->getClassDef(), STATEMENT_TYPE_DEF, pVarDef2, NULL);
 				m_pStructTypeDef->getClassDef()->addDef(pStatement2);
@@ -840,8 +840,8 @@ void CMyFunc::checkStatementDecompose(ScopeVector& ret_v, CStatement* pStatement
 	{
 		MY_ASSERT(pStatement->getChildrenCount() == 1);
 		CExpr2* pExpr2 = (CExpr2*)pStatement->getChildAt(0);
-		int n = 0;
-		for (int i = 0; i < pExpr2->getChildrenCount(); i++)
+		unsigned n = 0;
+		for (unsigned i = 0; i < pExpr2->getChildrenCount(); i++)
 		{
 			CExpr* pExpr = (CExpr*)pExpr2->getChildAt(i);
 			if (!pExpr)
@@ -873,7 +873,7 @@ void CMyFunc::checkStatementDecompose(ScopeVector& ret_v, CStatement* pStatement
 		unsigned local_obj_var_cnt2 = local_obj_var_cnt;
 		ret_v2 = pStatement->m_children;
 		pStatement->m_children.clear();
-		int nOldLocalObjVarIndex = m_local_obj_var_index;
+		unsigned nOldLocalObjVarIndex = m_local_obj_var_index;
 		for (size_t i = 0; i < ret_v2.size(); i++)
 		{
 			CScope* pGrammarObj = ret_v2[i];
@@ -1172,13 +1172,13 @@ void CMyFunc::checkStatementDecompose(ScopeVector& ret_v, CStatement* pStatement
 
 		unsigned nSignalEnter = allocSignalNo(); // this is exiting signal
 
-		int n = 1;
-		for (int i = 0; i < pStatement->m_int_vector.size(); i++)
+		unsigned n = 1;
+		for (unsigned i = 0; i < pStatement->m_int_vector.size(); i++)
 		{
 			int m = pStatement->m_int_vector[i];
 			CExpr* pExpr = (CExpr*)pStatement->getChildAt(n);
 			MY_ASSERT(!pExpr->isFlow());
-			for (int j = 1; j < m;)
+			for (unsigned j = 1; j < m;)
 			{
 				CStatement* pStatement2 = (CStatement*)pStatement->getChildAt(n + j);
 				ret_v2.clear();
@@ -1295,7 +1295,8 @@ void CMyFunc::checkStatementDecompose(ScopeVector& ret_v, CStatement* pStatement
 		TypeDefPointer pFuncType = TypeDefPointer(new CTypeDef(NULL, "", SEMANTIC_TYPE_FUNC, g_type_def_void, 0));
 		pFuncType->setFuncFlowType(FLOW_TYPE_FLOW);
 
-		TypeDefPointer pTypeDef = TypeDefPointer(new CTypeDef(m_pFunc->getParent()->getRealScope(), m_pStructTypeDef->getName(), m_pStructTypeDef, 1));
+		TypeDefPointer pTypeDef = TypeDefPointer(new CTypeDef(m_pFunc->getParent()->getRealScope(), m_pStructTypeDef->getName(), m_pStructTypeDef, 0));
+		pTypeDef = TypeDefPointer(new CTypeDef(m_pFunc->getParent()->getRealScope(), "", pTypeDef, 1));
 		pFuncType->addFuncParam(new CVarDef(NULL, FLOW_FORK_PARENT_PARAM_NAME, pTypeDef, NULL));
 
 		std::string new_sub_name = getNewSubFuncName();
@@ -1307,7 +1308,7 @@ void CMyFunc::checkStatementDecompose(ScopeVector& ret_v, CStatement* pStatement
 		CStatement* pStatement2 = (CStatement*)pStatement->getChildAt(bIsFlowNew ? 1 : 0);
 		if (pStatement2->getStatementType() == STATEMENT_TYPE_COMPOUND)
 		{
-			for (int i = 0; i < pStatement2->getChildrenCount(); i++)
+			for (unsigned i = 0; i < pStatement2->getChildrenCount(); i++)
 			{
 				CStatement* pStatement3 = (CStatement*)pStatement2->getChildAt(i);
 				moveVarUnderParentInStatement(pStatement3, FLOW_FORK_PARENT_PARAM_NAME, local_var_names);
@@ -1407,7 +1408,8 @@ void CMyFunc::checkStatementDecompose(ScopeVector& ret_v, CStatement* pStatement
 		TypeDefPointer pFuncType = TypeDefPointer(new CTypeDef(NULL, "", SEMANTIC_TYPE_FUNC, g_type_def_void, 0));
 		pFuncType->setFuncFlowType(FLOW_TYPE_FLOW);
 
-		TypeDefPointer pTypeDef = TypeDefPointer(new CTypeDef(m_pFunc->getParent()->getRealScope(), m_pStructTypeDef->getName(), m_pStructTypeDef, 1));
+		TypeDefPointer pTypeDef = TypeDefPointer(new CTypeDef(m_pFunc->getParent()->getRealScope(), m_pStructTypeDef->getName(), m_pStructTypeDef, 0));
+		pTypeDef = TypeDefPointer(new CTypeDef(m_pFunc->getParent()->getRealScope(), "", pTypeDef, 1));
 		pFuncType->addFuncParam(new CVarDef(NULL, FLOW_FORK_PARENT_PARAM_NAME, pTypeDef, NULL));
 
 		std::string sub_func_name = getNewSubFuncName();
@@ -1418,7 +1420,7 @@ void CMyFunc::checkStatementDecompose(ScopeVector& ret_v, CStatement* pStatement
 		CStatement* pStatement2 = (CStatement*)pStatement->getChildAt(0);
 		if (pStatement2->getStatementType() == STATEMENT_TYPE_COMPOUND)
 		{
-			for (int i = 0; i < pStatement2->getChildrenCount(); i++)
+			for (unsigned i = 0; i < pStatement2->getChildrenCount(); i++)
 			{
 				CStatement* pStatement3 = (CStatement*)pStatement2->getChildAt(i);
 				moveVarUnderParentInStatement(pStatement3, FLOW_FORK_PARENT_PARAM_NAME, local_var_names);
@@ -1603,7 +1605,7 @@ void CMyFunc::checkStatementDecompose(ScopeVector& ret_v, CStatement* pStatement
 			CStatement* pCatchStatement = (CStatement*)pStatement->getChildAt(1 + n * 3 + 2);
 			if (pCatchStatement->getStatementType() == STATEMENT_TYPE_COMPOUND)
 			{
-				for (int i = 0; i < pCatchStatement->getChildrenCount(); i++)
+				for (unsigned i = 0; i < pCatchStatement->getChildrenCount(); i++)
 				{
 					CStatement* pStatement3 = (CStatement*)pCatchStatement->getChildAt(i);
 					checkStatementDecompose(ret_v2, pStatement3, -1, inAndOutSignalNo, local_var_names, local_obj_var_cnt);
@@ -1696,7 +1698,7 @@ void CMyFunc::checkDupNames(CStatement* pStatement)
 		if (!pStatement->isFlow())
 			return;
 
-		for (int i = 0; i < pStatement->getChildrenCount(); i++)
+		for (unsigned i = 0; i < pStatement->getChildrenCount(); i++)
 		{
 			CStatement* pStatement2 = (CStatement*)pStatement->getChildAt(i);
 
@@ -1731,7 +1733,7 @@ void CMyFunc::checkDupNames(CStatement* pStatement)
 	}
 	default:
 	{
-		for (int i = 0; i < pStatement->getChildrenCount(); i++)
+		for (unsigned i = 0; i < pStatement->getChildrenCount(); i++)
 		{
 			CScope* pObj = pStatement->getChildAt(i);
 			if (!pObj)
@@ -1768,7 +1770,7 @@ void CMyFunc::checkNonFlowExprDecompose(CExpr* pExpr, const LocalVarSet& local_v
 		return;
 	}
 
-	for (int i = 0; i < pExpr->getChildrenCount(); i++)
+	for (unsigned i = 0; i < pExpr->getChildrenCount(); i++)
 	{
 		CExpr* pExpr2 = (CExpr*)pExpr->getChildAt(i);
 		MY_ASSERT(pExpr2->getGoType() == GO_TYPE_EXPR || pExpr2->getGoType() == GO_TYPE_EXPR2);
@@ -1812,7 +1814,7 @@ void CMyFunc::checkNonFlowStatementDecompose(ScopeVector& ret_v, CStatement* pSt
 		return;
 	}
 
-	for (int i = 0; i < pStatement->getChildrenCount(); i++)
+	for (unsigned i = 0; i < pStatement->getChildrenCount(); i++)
 	{
 		CScope* pObj = pStatement->getChildAt(i);
 		if (!pObj)
@@ -2104,7 +2106,7 @@ ScopeVector CMyFunc::analyze()
 	}
 
 	// step 2, check dup names. when found, rename them.
-	for (int i = 0; i < m_pFunc->getChildrenCount(); i++)
+	for (unsigned i = 0; i < m_pFunc->getChildrenCount(); i++)
 	{
 		CStatement* pStatement = (CStatement*)m_pFunc->getChildAt(i);
 		checkDupNames(pStatement);
@@ -2235,7 +2237,7 @@ ScopeVector CMyFunc::analyze()
 				new CExpr(NULL, EXPR_TYPE_PTR_ELEMENT, new CExpr(NULL, EXPR_TYPE_TOKEN_WITH_NAMESPACE, LOCALVAR_NAME), FLOW_DELETE_TABLE), 
 				new CExpr(NULL, EXPR_TYPE_LEFT_DEC, new CExpr(NULL, EXPR_TYPE_REF_ELEMENT, new CExpr(NULL, EXPR_TYPE_PTR_ELEMENT, 
 					new CExpr(NULL, EXPR_TYPE_TOKEN_WITH_NAMESPACE, LOCALVAR_NAME), FLOW_BASIC_MEMBER_NAME), FLOW_DELETE_COUNTER)))); 
-			for (int i = 0; i < pStruct->getChildrenCount(); i++)
+			for (unsigned i = 0; i < pStruct->getChildrenCount(); i++)
 			{
 				CScope* pScope = pStruct->getChildAt(i);
 				MY_ASSERT(pScope->getGoType() == GO_TYPE_STATEMENT);
@@ -2312,7 +2314,7 @@ ScopeVector parseGrammarObject(CScope* pScope)
 	}
 	else if (goType == GO_TYPE_NAMESPACE)
 	{
-		for (int i = 0; i < pScope->getChildrenCount();)
+		for (unsigned i = 0; i < pScope->getChildrenCount();)
 		{
 			CScope* pChild = pScope->getChildAt(i);
 			// sometimes a scope's child's parent is not itself, etc. a namespace is created as a parent namespace with realscope and 
@@ -2321,7 +2323,7 @@ ScopeVector parseGrammarObject(CScope* pScope)
 			CScope* pParent = pChild->getParent(); 													
 			std::vector<CScope*> ret_v2 = parseGrammarObject(pChild);
 			pScope->removeChildAt(i);
-			for (int j = 0; j < ret_v2.size(); j++, i++)
+			for (unsigned j = 0; j < ret_v2.size(); j++, i++)
 			{
 				pChild = ret_v2[j];
 				pScope->insertChildAt(i, pChild);
@@ -2346,11 +2348,13 @@ ScopeVector parseGrammarObject(CScope* pScope)
 			if (pStructStatement)
 			{
 				pStructStatement->setDefLocation(pStatement->getDefFileStack(), pStatement->getDefLineNo());
+				pStructStatement->setTransformed();
 				ret_v.push_back(pStructStatement);
 			}
 			if (pFuncDeclare->getParent()->getGoType() == GO_TYPE_CLASS)
 			{
 				CFunction* pStaticFunction = createStaticFunction((CClassDef*)pFuncDeclare->getParent(), pFuncDeclare->getName());
+				pStaticFunction->setTransformed();
 				ret_v.push_back(pStaticFunction);
 			}
 
@@ -2369,7 +2373,8 @@ ScopeVector parseGrammarObject(CScope* pScope)
 		{
 			TypeDefPointer pTypeDef = ((CStatement*)pScope)->getTypeDef();
 			CClassDef* pClassDef = pTypeDef->getClassDef();
-			for (int i = 0; i < pClassDef->getChildrenCount();)
+			bool bTransformed = false;
+			for (unsigned i = 0; i < pClassDef->getChildrenCount();)
 			{
 				CScope* pChild = pClassDef->getChildAt(i);
 				// sometimes a scope's child's parent is not itself, etc. a namespace is created as a parent namespace with realscope and 
@@ -2378,11 +2383,18 @@ ScopeVector parseGrammarObject(CScope* pScope)
 				CScope* pParent = pChild->getParent(); 													
 				std::vector<CScope*> ret_v2 = parseGrammarObject(pChild);
 				pClassDef->removeChildAt(i);
-				for (int j = 0; j < ret_v2.size(); j++, i++)
+				for (unsigned j = 0; j < ret_v2.size(); j++, i++)
 				{
 					pChild = ret_v2[j];
+					if (pChild->isTransformed())
+						bTransformed = true;
 					pClassDef->insertChildAt(i, pChild);
 					pChild->setParent(pParent);
+				}
+				if (bTransformed)
+				{
+					pClassDef->setTransformed();
+					pStatement->setTransformed();
 				}
 			}
 			break;
@@ -2438,22 +2450,6 @@ int main(int argc, char* argv[])
 
 	semanticInit();
 	AnalyzeFile(argv[1], argv[2], 0, NULL);
-
-	/*DIR *d;
-	struct dirent *dir;
-	d = opendir(".");
-
-	while ((dir = readdir(d)) != NULL)
-	{
-		if (strcmp(dir->d_name, "test.cpp") != 0)
-			continue;
-		char* postfix = strrchr(dir->d_name, '.');
-		if (postfix == NULL)
-			continue;
-		if (strcmp(postfix, ".cpp") == 0 || strcmp(postfix, "*.c") == 0)
-			AnalyzeFile(dir->d_name, argc, argv);
-	}
-	closedir(d);*/
 
 	return 0;
 }

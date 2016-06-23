@@ -17,11 +17,11 @@ typedef std::set<std::string> StringSet;
 
 typedef unsigned long long uint64_t;
 
-#ifdef _DEBUG
-#define MY_ASSERT(x)	do { if (!(x)) abort(); } while (false)
-#else
-#define MY_ASSERT(x)	do {} while (false)
-#endif
+//#ifdef _DEBUG
+#define MY_ASSERT(x)	do { if (!(x)) { for (int i = 0; i < 30; i++) printf("-----------------------------------------------------------------------------------------------------------------------------------------------\n"); abort(); }} while (false)
+//#else
+//#define MY_ASSERT(x)	do {} while (false)
+//#endif
 void fatal_error(const char* format, ...);
 char* ltoa(long v);
 StringVector str_explode(const std::string& str, const std::string& delim);
@@ -29,7 +29,7 @@ void write_log(const char* fmt, ...);
 char* cur_time();
 std::string trim(const std::string &s);
 uint64_t get_cur_tick();
-StringVector get_sys_include_path();
+const StringVector& get_sys_include_path();
 
 #define LEXER_CALLBACK_MODE_GET_FUNCTION    1
 
@@ -62,7 +62,10 @@ public:
     // for debug purpose
     void printDefineMap();
 
+    static bool isChar(const std::string& str);
     static bool isNumber(const std::string& str);
+    static bool isString(const std::string& str); // "..." or L"..."
+    static long calcValue(const char* str);
     static bool isIdentifier(const std::string& str);
     static bool isCommentWord(const std::string& s);
     static std::string file_stack_2_string(const StringVector& file_stack, int line_no);
@@ -106,7 +109,7 @@ protected:
 
     // read from tokens
     StringVector    		m_tokens;
-	int						m_token_offset;
+	unsigned				m_token_offset;
     StringVector			m_file_stack;
     int						m_file_line_no;
 
@@ -117,7 +120,6 @@ protected:
 
     // read all content in a file and returns it
     static char* readContentFromFile(const char* file_name);
-    static long calcValue(const char* str);
     static bool isSymbol(char c);
     static std::string combine_tokens(StringVector::iterator begin, StringVector::iterator end);
     bool isDefined(const std::string& s);

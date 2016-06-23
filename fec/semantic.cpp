@@ -1,20 +1,26 @@
 #include "semantic.h"
 #include <string>
-//#include <bits/stl_algobase.h>
+#include <errno.h>
 
 #define	MERGE_INCLUDE_FILE
 bool g_log_semantic = false;
+bool g_write_doxygen_files = false;
 #define TRACE(fmt)	do { if (g_log_semantic) write_log(fmt); } while (false)
 #define TRACE2(fmt, ...)	do { if (g_log_semantic) write_log(fmt, __VA_ARGS__); } while (false)
 StringVector g_cur_file_stack;
 int g_cur_line_no;
 FuncListener g_func_listener = NULL;
-TypeDefPointer g_type_def_int, g_type_def_unsigned, g_type_def_bool, g_type_def_const_char_ptr, g_type_def_void, g_type_def_void_ptr, g_type_def_func_void;
+TypeDefPointer g_type_def_int, g_type_def_unsigned, g_type_def_bool, g_type_def_const_char_ptr, g_type_def_void, g_type_def_void_ptr, g_type_def_func_void, g_type_def_void_func_ptr;
 SourceTreeNode* g_int_node_tree = NULL, *g_bool_node_tree = NULL;
 // root is in the front
 CNamespace g_global_namespace(NULL, true, true, "");
 SymbolDefObject g_global_symbol_obj;
 std::vector<CScope*> g_scope_stack;
+#define MAX_DOXYGEN_FILE_COUNT 20
+CScope* g_doxygen_open_earliest = NULL;
+CScope* g_doxygen_open_lastest = NULL;
+int g_doxygen_open_count = 0;
+int g_inst_id = 0;
 
 std::string g_buildin_funcs =
 	"typedef short __char16_t;\n"
@@ -62,20 +68,16 @@ std::string g_buildin_funcs =
 	"int __builtin_clrsbll (long long);\n"
 	"int __builtin_popcountll (unsigned long long);\n"
 	"int __builtin_parityll (unsigned long long);\n"
-	"void* __typeof__(void*);\n"
-
 	"void __builtin_va_start(__builtin_va_list, const void*);\n"
 	"void __builtin_va_end(__builtin_va_list);\n"
 	"int __builtin_vsprintf(char* __out, const char* __fmt, __builtin_va_list __args);\n"
 	"int __builtin_vsnprintf(char* __out, int __size, const char* __fmt, __builtin_va_list __args);\n"
-
 	"int __sync_fetch_and_add(void* , int);\n"
 	"int __sync_fetch_and_sub(void* , int);\n"
 	"int __sync_fetch_and_and(void* , int);\n"
 	"int __sync_fetch_and_nand(void* , int);\n"
 	"int __sync_fetch_and_or(void* , int);\n"
 	"int __sync_fetch_and_xor(void* , int);\n"
-
 	"void __builtin_memcpy(void* , const void*, long unsigned);\n"
 	"void __builtin_memmove(void* , const void*, long unsigned);\n"
 	"int __builtin_memcmp(const void* , const void*, long unsigned);\n"
@@ -87,25 +89,17 @@ std::string g_buildin_funcs =
 	"char* __builtin_strrchr(const char*, int);\n"
 	"char* __builtin_strstr(const char*, const char*);\n"
 	"char* __builtin_strpbrk(const char*, const char*);\n"
-
-	//"uint16_t __builtin_bswap16 (uint16_t x);\n"
-	//"uint32_t __builtin_bswap32 (uint32_t x);\n"
-	//"uint64_t __builtin_bswap64 (uint64_t x);\n"
-
     "float       __builtin_cabsf(float __x);\n"
     "double      __builtin_cabs(double __x);\n"
     "double      __builtin_fabs(double __x);\n"
     "float       __builtin_fabsf(float __x);\n"
     "long double __builtin_fabsl(long double __x);\n"
     "long double __builtin_cabsl(long double __x);\n"
-
     "float       __builtin_cargf(float __x);\n"
     "double      __builtin_carg(double __x);\n"
     "long double __builtin_cargl(long double __x);\n"
-
     "float       __builtin_ceilf(float __x);\n"
     "long double __builtin_ceill(long double __x);\n"
-
 	"float	     __builtin_acosf(float __x);\n"
 	"double	     __builtin_acos(double __x);\n"
 	"long double __builtin_acosl(long double __x);\n"
@@ -118,11 +112,9 @@ std::string g_buildin_funcs =
     "float       __builtin_ccosf(float __x);\n"
     "double      __builtin_ccos(double __x);\n"
     "long double __builtin_ccosl(long double __x);\n"
-
     "float       __builtin_ccoshf(float __x);\n"
     "double      __builtin_ccosh(double __x);\n"
     "long double __builtin_ccoshl(long double __x);\n"
-
     "float       __builtin_expf(float __x);\n"
     "long double __builtin_expl(long double __x);\n"
     "double      __builtin_exp(double __x);\n"
@@ -135,27 +127,22 @@ std::string g_buildin_funcs =
     "float       __builtin_cexpf(float __x);\n"
     "double      __builtin_cexp(double __x);\n"
     "long double __builtin_cexpl(long double __x);\n"
-
     "float       __builtin_floorf(float __x);\n"
     "long double __builtin_floorl(long double __x);\n"
     "double      __builtin_floor(double __x);\n"
-
     "float       __builtin_logf(float __x);\n"
     "long double __builtin_logl(long double __x);\n"
     "double      __builtin_log(double __x);\n"
     "float       __builtin_clogf(float __x);\n"
     "double      __builtin_clog(double __x);\n"
     "long double __builtin_clogl(long double __x);\n"
-
     "float       __builtin_log10f(float __x);\n"
     "long double __builtin_log10l(long double __x);\n"
     "double      __builtin_log10(double __x);\n"
-
     "float       __builtin_modff(float __x, float* __iptr);\n"
     "long double __builtin_modfl(long double __x, long double* __iptr);\n"
     "float       __builtin_fmodf(float __x, float __y);\n"
     "long double __builtin_fmodl(long double __x, long double __y);\n"
-
     "float       __builtin_powf(float __x, float __y);\n"
     "long double __builtin_powl(long double __x, long double __y);\n"
     "double      __builtin_powi(double __x, int __i);\n"
@@ -164,7 +151,6 @@ std::string g_buildin_funcs =
     "float       __builtin_cpowf(float __x, float __y);\n"
     "double      __builtin_cpow(double __x, double __y);\n"
     "long double __builtin_cpowl(long double __x, long double __y);\n"
-
     "float       __builtin_sinf(float __x);\n"
     "long double __builtin_sinl(long double __x);\n"
     "double      __builtin_sin(double __x);\n"
@@ -177,18 +163,15 @@ std::string g_buildin_funcs =
     "float       __builtin_csinf(float __x);\n"
     "double      __builtin_csin(double __x);\n"
     "long double __builtin_csinl(long double __x);\n"
-
     "float       __builtin_csinhf(float __x);\n"
     "double      __builtin_csinh(double __x);\n"
     "long double __builtin_csinhl(long double __x);\n"
-
     "float       __builtin_sqrtf(float __x);\n"
     "long double __builtin_sqrtl(long double __x);\n"
     "double      __builtin_sqrt(double __x);\n"
     "float       __builtin_csqrtf(float __x);\n"
     "double      __builtin_csqrt(double __x);\n"
     "long double __builtin_csqrtl(long double __x);\n"
-
     "float	     __builtin_atanf(float __x);\n"
 	"long double __builtin_atanl(long double __x);\n"
 	"double	     __builtin_atan(double __x);\n"
@@ -206,8 +189,13 @@ std::string g_buildin_funcs =
     "float       __builtin_ctanhf(float __x);\n"
     "double      __builtin_ctanh(double __x);\n"
     "long double __builtin_ctanhl(long double __x);\n"
-
 	"struct type_info;\n"
+	// WINDOWS
+	"void __noop(...);\n"
+	// MACOS
+	"unsigned short __builtin_bswap16 (unsigned short x);\n"
+	"unsigned int __builtin_bswap32 (unsigned int x);\n"
+	"unsigned long __builtin_bswap64 (unsigned long x);\n"
 	;
 
 bool isConstValue(const std::string& s)
@@ -262,11 +250,20 @@ std::string getSemanticTypeName(SemanticDataType type)
 	case SEMANTIC_TYPE_CLASS:
 		return "class";
 
+	case SEMANTIC_TYPE_FUNC:
+		return "func";
+
 	case SEMANTIC_TYPE_TYPENAME:
 		return "typename";
 
 	case SEMANTIC_TYPE_TEMPLATE:
 		return "template";
+
+	case SEMANTIC_TYPE_DATA_MEMBER_POINTER:
+		return "data member pointer";
+
+	case SEMANTIC_TYPE_TYPEOF:
+		return "typeof";
 
 	default:
 		MY_ASSERT(false);
@@ -326,6 +323,24 @@ std::string getGoTypeName(GrammarObjectType t)
 	return "unkonwn";
 }
 
+std::string typeListToFullString(const TypeDefVector& typeList)
+{
+	std::string str;
+
+	for (unsigned i = 0; i < typeList.size(); i++)
+	{
+		if (i > 0)
+			str += ", ";
+		TypeDefPointer pTypeDef = typeList[i];
+		if (pTypeDef->hasNumValue())
+			str += ltoa(pTypeDef->getNumValue());
+		else
+			str += pTypeDef->toFullString();
+	}
+
+	return str;
+}
+
 void exprReplaceTypeNameIfAny(SourceTreeNode* pRoot, const std::map<std::string, std::string>& dict);
 void extendedTypeReplaceTypeNameIfAny(SourceTreeNode* pRoot, const std::map<std::string, std::string>& dict);
 void extendedTypeVarReplaceTypeNameIfAny(SourceTreeNode* pRoot, const std::map<std::string, std::string>& dict);
@@ -348,7 +363,7 @@ void typeReplaceTypeNameIfAny(SourceTreeNode* pTypeNode, const std::map<std::str
 				scopeChangeTokenName(pScopeNode, 0, it->second);
 		}
 
-		for (int i = 0; i < twn.getTemplateParamCount(twn.getDepth() - 1); i++)
+		for (unsigned i = 0; i < twn.getTemplateParamCount(twn.getDepth() - 1); i++)
 		{
 			//bool bType;
 			SourceTreeNode* pChildNode;
@@ -390,7 +405,7 @@ void typeReplaceTypeNameIfAny(SourceTreeNode* pTypeNode, const std::map<std::str
 			userDefTypeChangeTokenName(pUserDefNode, 0, it->second);
 	}
 
-	for (int i = 0; i < twn.getTemplateParamCount(twn.getDepth() - 1); i++)
+	for (unsigned i = 0; i < twn.getTemplateParamCount(twn.getDepth() - 1); i++)
 	{
 		//bool bType;
 		SourceTreeNode* pChildNode;
@@ -489,11 +504,11 @@ void exprReplaceTypeNameIfAny(SourceTreeNode* pRoot, const std::map<std::string,
 			break;
 		}
 
-		for (int i = 0; i < twn.getDepth(); i++)
+		for (unsigned i = 0; i < twn.getDepth(); i++)
 		{
 			if (!twn.scopeHasTemplate(i))
 				continue;
-			for (int j = 0; j < twn.getTemplateParamCount(i); j++)
+			for (unsigned j = 0; j < twn.getTemplateParamCount(i); j++)
 			{
 				SourceTreeNode* pNode;
 				switch (twn.getTemplateParamAt(i, j, pNode))
@@ -563,8 +578,8 @@ TokenWithNamespace getRelativeTWN2(CScope* pSrc, CScope* pTarget, const std::str
 
 	if (pSrc == pTarget)
 	{
-		MY_ASSERT(!name.empty());
-		twn.addScope(name);
+		if (!name.empty())
+			twn.addScope(name);
 		return twn;
 	}
 
@@ -779,43 +794,81 @@ std::string getRelativePath(CScope* pTarget, const std::string& name)
 
 int comparableWith(TypeDefPointer pDefTypeDef, TypeDefPointer pRealTypeDef)
 {
+	int inst_id = g_inst_id++;
 	int score = 0;
 
-	int def_depth = 0, real_depth = 0;
-	bool bDefConst = false, bRealConst = false, bDefRef = false;
+	TRACE2("%s(%d), defType=%s, realType=%s, ", __FUNCTION__, inst_id, pDefTypeDef->toFullString().c_str(), pRealTypeDef->toFullString().c_str());
 
-	bDefConst |= pDefTypeDef->isConst();
-	bDefRef |= pDefTypeDef->isReference();
+	while (!pDefTypeDef->isBaseType() || !pRealTypeDef->isBaseType())
+	{
+		if (!pDefTypeDef->isBaseType() && !pDefTypeDef->isConst() && pDefTypeDef->getDepth() == 0 && pDefTypeDef->getReferenceCount() == 0)
+		{
+			pDefTypeDef = pDefTypeDef->getBaseType();
+			continue;
+		}
+		if (!pRealTypeDef->isBaseType() && !pRealTypeDef->isConst() && pRealTypeDef->getDepth() == 0 && pRealTypeDef->getReferenceCount() == 0)
+		{
+			pRealTypeDef = pRealTypeDef->getBaseType();
+			continue;
+		}
+		if (!pDefTypeDef->isBaseType() && !pRealTypeDef->isBaseType() && pDefTypeDef->isConst() == pRealTypeDef->isConst() && 
+			pDefTypeDef->getDepth() == pRealTypeDef->getDepth() && pDefTypeDef->getReferenceCount() == pRealTypeDef->getReferenceCount())
+		{
+			pDefTypeDef = pDefTypeDef->getBaseType();
+			pRealTypeDef = pRealTypeDef->getBaseType();
+			score += 1;
+			continue;
+		}
+		break;
+	}
+
+	int def_depth = 0, real_depth = 0, def_ref_cnt = 0, real_ref_cnt = 0;
+	bool bDefConst = false, bRealConst = false;
+
 	while (!pDefTypeDef->isBaseType())
 	{
-		def_depth += pDefTypeDef->getDepth();
-		pDefTypeDef = pDefTypeDef->getBaseType();
 		bDefConst |= pDefTypeDef->isConst();
-		bDefRef |= pDefTypeDef->isReference();
+		def_depth += pDefTypeDef->getDepth();
+		def_ref_cnt += pDefTypeDef->getReferenceCount();
+		pDefTypeDef = pDefTypeDef->getBaseType();
 	}
+	bDefConst |= pDefTypeDef->isConst();
+	def_depth += pDefTypeDef->getDepth();
+	def_ref_cnt += pDefTypeDef->getReferenceCount();
 
-	if (def_depth == 0 && (!bDefRef || bDefConst) && (pDefTypeDef->getType() == SEMANTIC_TYPE_CLASS || pDefTypeDef->getType() == SEMANTIC_TYPE_STRUCT))
-	{
-		if (pDefTypeDef->getClassDef()->hasConstructorOrCanBeAssignedWith(pRealTypeDef))
-			return 10;
-	}
-
-	bRealConst |= pRealTypeDef->isConst();
 	while (!pRealTypeDef->isBaseType())
 	{
-		real_depth += pRealTypeDef->getDepth();
-		pRealTypeDef = pRealTypeDef->getBaseType();
 		bRealConst |= pRealTypeDef->isConst();
+		real_depth += pRealTypeDef->getDepth();
+		real_ref_cnt += pRealTypeDef->getReferenceCount();
+		pRealTypeDef = pRealTypeDef->getBaseType();
 	}
+	bRealConst |= pRealTypeDef->isConst();
+	real_depth += pRealTypeDef->getDepth();
+	real_ref_cnt += pRealTypeDef->getReferenceCount();
+
+	TRACE2("%s(%d), defConst=%d, defDepth=%d, defRef=%d, realConst=%d, realDepth=%d, realRef=%d, score=%d", __FUNCTION__, inst_id, 
+		bDefConst, def_depth, def_ref_cnt, bRealConst, real_depth, real_ref_cnt, score);
+
 	score += (bDefConst == bRealConst ? 10 : 0);
-	TRACE2("defConst=%d, realConst=%d, ", bDefConst, bRealConst);
+
+	if (def_depth == 0 && (!def_ref_cnt || bDefConst) && (pDefTypeDef->getType() == SEMANTIC_TYPE_CLASS || pDefTypeDef->getType() == SEMANTIC_TYPE_STRUCT))
+	{
+		if (pDefTypeDef->toFullString() == pRealTypeDef->toFullString())
+			return score + 20;
+		if (pDefTypeDef->getClassDef()->hasConstructorOrCanBeAssignedWith(pRealTypeDef))
+			return score + 10;
+	}
 
 	if (pDefTypeDef->isVoid() && (real_depth >= def_depth || pRealTypeDef->toString() == "__builtin_va_list"))
 		return score + def_depth;
 
-	TRACE2("dep_depth=%d, real_depth=%d, isZero=%d, ", def_depth, real_depth, pRealTypeDef->isZero());
+	TRACE2("%s(%d), dep_depth=%d, real_depth=%d, isZero=%d, ", __FUNCTION__, inst_id, def_depth, real_depth, pRealTypeDef->isZero());
 	if (def_depth != real_depth && !pRealTypeDef->isZero())
+	{
+		TRACE2("%s(%d), error, def_depth=%d, real_depth=%d, real_isZero=%d\n", __FUNCTION__, inst_id, def_depth, real_depth, pRealTypeDef->isZero());
 		return -1;
+	}
 
 	if (def_depth > 0 && real_depth == 0 && pRealTypeDef->isZero())
 		return score + 10;
@@ -831,8 +884,10 @@ int comparableWith(TypeDefPointer pDefTypeDef, TypeDefPointer pRealTypeDef)
 	case SEMANTIC_TYPE_ENUM:
 	{
 		if (pRealTypeDef->getType() != SEMANTIC_TYPE_BASIC && pRealTypeDef->getType() != SEMANTIC_TYPE_ENUM)
+		{
+			TRACE2("%s(%d), error realType is not basic or enum but %d\n", __FUNCTION__, inst_id, pRealTypeDef->getType());
 			return -1;
-
+		}
 		std::string def_type, real_type;
 		if (pDefTypeDef->getType() == SEMANTIC_TYPE_ENUM)
 			def_type = "int";
@@ -862,26 +917,38 @@ int comparableWith(TypeDefPointer pDefTypeDef, TypeDefPointer pRealTypeDef)
 
 		if (pDefTypeDef->getClassDef()->hasConstructorOrCanBeAssignedWith(pRealTypeDef))
 			return score + 10;
-		break;
+		TRACE2("%s(%d), error, class cannot be assigned\n", __FUNCTION__, inst_id);
+		return -1;
 	}
 	case SEMANTIC_TYPE_FUNC:
 	{
-		if (def_depth > 0 || real_depth > 0)
+		if (def_depth > 1 || real_depth > 1 || def_depth != real_depth)
+		{
+			TRACE2("%s(%d), error, def_depth=%d, real_depth=%d\n", __FUNCTION__, inst_id, def_depth, real_depth);
 			return -1;
+		}
 		if (pRealTypeDef->getType() != SEMANTIC_TYPE_FUNC)
+		{
+			TRACE2("%s(%d), error, realType is not func but %d\n", __FUNCTION__, inst_id, pRealTypeDef->getType());
 			return -1;
+		}
 		std::vector<TypeDefPointer> realTypeList;
 		for (int i = 0; i < pRealTypeDef->getFuncParamCount(); i++)
 			realTypeList.push_back(pRealTypeDef->getFuncParamAt(i)->getType());
 		score = pDefTypeDef->checkCallParams(realTypeList, false);
 		if (score > 0)
 			return score + 10;
+		TRACE2("%s(%d), error, func checkCallParams return -1, realType=%s\n", __FUNCTION__, inst_id);
+		return -1;
 		break;
 	}
 	default:
-		MY_ASSERT(false);
+		TRACE2("%s(%d), error, defType=%d which is not allowed\n", __FUNCTION__, inst_id, pDefTypeDef->getType());
+		//MY_ASSERT(false);
+		return -1;
 	}
 
+	MY_ASSERT(false);
 	return -1;
 }
 
@@ -922,10 +989,10 @@ std::string CGrammarObject::getPath()
 {
     std::string s;
     if (m_pParent)
-        s = m_pParent->getDebugPath();
+        s = m_pParent->getPath();
 
     if (!getName().empty())
-        s += "::" + getName();
+        s += "/::" + getName();
     return s;
 }
 
@@ -939,6 +1006,12 @@ std::string CGrammarObject::getDebugPath()
 	sprintf(buf, "(0x%lx)", (long)this);
 	s += std::string("/") + ltoa(getGoType()) + ":" + getDebugName() + buf;
 	return s;
+}
+
+void CGrammarObject::setHasTypename(bool b)
+{ 
+	m_bHasTypename = b; 
+	TRACE2("%s, %s set hasTypename\n", __FUNCTION__, getDebugPath().c_str()); 
 }
 
 CScope* CGrammarObject::getParentScope(GrammarObjectType go_type)
@@ -1007,14 +1080,15 @@ void CTypeDef::init()
 {
 	m_pSpecialType = NULL;
 	m_depth = 0;
-	m_bReference = false;
+	m_nReference = 0;
 	m_bHasVArgs = false;
 	m_pFuncReturnTypeNode = NULL;
 	m_nFuncThrow = 0;
 	m_pThrowTypeNode = NULL;
 	m_bPureVirtual = false;
-	m_bZero = false;
+	m_bHasValue = false;
 	m_display_flag = false;
+	m_typeof_expr_node = NULL;
 }
 
 CTypeDef::CTypeDef(CScope* pScope, const std::string& name, const StandardType& basic_tokens) : CGrammarObject(pScope), m_shared_from_this(this)
@@ -1041,9 +1115,26 @@ CTypeDef::CTypeDef(CScope* pScope, const std::string& name, CClassDef* pClassDef
 	m_name = name;
 	m_pSpecialType = pClassDef;
 	m_type = pClassDef->getType();
+	if (m_type == SEMANTIC_TYPE_TYPENAME)
+	{
+		MY_ASSERT(pClassDef->hasTypename());
+		setHasTypename();
+	}
 	setPrefix(getSemanticTypeName(pClassDef->getType()) + " ");
-    TRACE2("CREATING CTypeDef struct, %s\n", getDebugPath().c_str());
+    TRACE2("CREATING CTypeDef struct, %s, class=%s, hasTypename=%d\n", getDebugPath().c_str(), pClassDef->getDebugPath().c_str(), hasTypename());
 }
+
+// template
+CTypeDef::CTypeDef(CScope* pScope, const std::string& name, CTemplate* pTemplate) : CGrammarObject(pScope), m_shared_from_this(this)
+{
+	init();
+
+	m_type = SEMANTIC_TYPE_TEMPLATE;
+	m_name = name;
+	m_pSpecialType = pTemplate;
+    TRACE2("CREATING CTypeDef template, %s, template=%s\n", getDebugPath().c_str(), pTemplate->getDebugPath().c_str());
+}
+
 // func or func ptr, depth can be 0 or 1
 CTypeDef::CTypeDef(CScope* pScope, const std::string& name, SemanticDataType type, TypeDefPointer pReturnType, int depth) : CGrammarObject(pScope), m_shared_from_this(this)
 {
@@ -1070,9 +1161,11 @@ CTypeDef::CTypeDef(CScope* pScope, const std::string& name, SemanticDataType typ
 	m_name = name;
 	m_type = type;
 	m_pBaseTypeDef = pTypeDef;
+	if (m_pBaseTypeDef && m_pBaseTypeDef->hasTypename())
+		setHasTypename();
 	m_pFuncReturnType = pDataScope;
 	m_depth = 1;
-    TRACE2("CREATING CTypeDef data member pointer, %s\n", getDebugPath().c_str());
+    TRACE2("CREATING CTypeDef data member pointer, %s, hasTypename=%d\n", getDebugPath().c_str(), hasTypename());
 }
 
 CTypeDef::CTypeDef(CTemplate* pTemplate) : CGrammarObject(pTemplate), m_shared_from_this(this)
@@ -1085,22 +1178,24 @@ CTypeDef::CTypeDef(CTemplate* pTemplate) : CGrammarObject(pTemplate), m_shared_f
     TRACE2("CREATING CTypeDef template, %s\n", getDebugPath().c_str());
 }
 
-CTypeDef::CTypeDef(CScope* pScope, const std::string& name) : CGrammarObject(pScope), m_shared_from_this(this)
+CTypeDef::CTypeDef(CScope* pScope, const std::string& name, SemanticDataType type) : CGrammarObject(pScope), m_shared_from_this(this)
 {
+	MY_ASSERT(type == SEMANTIC_TYPE_TYPENAME);
 	init();
 
 	m_name = name;
 	m_type = SEMANTIC_TYPE_TYPENAME;
-    TRACE2("CREATING CTypeDef typename, %s\n", getDebugPath().c_str());
+	setHasTypename();
+    TRACE2("CREATING CTypeDef typename, %s, hasTypename=%d\n", getDebugPath().c_str(), hasTypename());
 }
 
-CTypeDef::CTypeDef(CScope* pScope, const std::string& name, const TokenWithNamespace& twn) : CGrammarObject(pScope), m_shared_from_this(this)
+CTypeDef::CTypeDef(CScope* pScope, const std::string& name, CExpr* pExpr) : CGrammarObject(pScope), m_shared_from_this(this)
 {
 	init();
 
 	m_name = name;
 	m_type = SEMANTIC_TYPE_TYPEOF;
-	m_typeof_twn = twn;
+	m_typeof_expr_node = pExpr;
     TRACE2("CREATING CTypeDef typeof, %s\n", getDebugPath().c_str());
 }
 
@@ -1111,20 +1206,15 @@ CTypeDef::CTypeDef(CScope* pScope, const std::string& name, TypeDefPointer pBase
 
 	if (!name.empty())
 		MY_ASSERT(pScope);
-	//MY_ASSERT(!pBaseTypeDef->getName().empty() || pBaseTypeDef->isBaseType());
 
-	//m_pScope = pScope;
 	m_name = name;
 	m_pBaseTypeDef = pBaseTypeDef;
-	m_type = m_pBaseTypeDef->getType();
-	//m_pDeclVarNode = pDeclVar;
-	//if (m_pDeclVarNode)
-	//{
-		m_depth = extra_depth; //declVarGetDepth(m_pDeclVarNode);
-		//m_bReference = bReference; //declVarIsReference(m_pDeclVarNode);
-		//setConst(bConst);
-	//}
-    TRACE2("CREATING CTypeDef complex, %s, depth=%d, ref=%d\n", getDebugPath().c_str(), m_depth, m_bReference);
+	m_type = m_pBaseTypeDef ? m_pBaseTypeDef->getType() : SEMANTIC_TYPE_BASIC;
+	if (m_pBaseTypeDef && m_pBaseTypeDef->hasTypename())
+		setHasTypename();
+	m_depth = extra_depth; //declVarGetDepth(m_pDeclVarNode);
+
+	TRACE2("CREATING CTypeDef complex, %s, value=%s, depth=%d, ref=%d, hasTypename=%d\n", getDebugPath().c_str(), toFullString().c_str(), m_depth, m_nReference, hasTypename());
 }
 
 CTypeDef::~CTypeDef()
@@ -1264,8 +1354,9 @@ void CTypeDef::setThrow(int nThrow, SourceTreeNode* pThrowTypeNode)
 // return -1 means failed. return matching score
 int CTypeDef::checkCallParams(const std::vector<TypeDefPointer>& typeList, bool bCallerIsConst)
 {
+	int inst_id = g_inst_id++;
 	MY_ASSERT(m_type == SEMANTIC_TYPE_FUNC);
-	TRACE2("CTypeDef::%s, func %s defined in %s, param_size=%lu, const=%d, ", __FUNCTION__, getName().c_str(), definedIn().c_str(), m_func_params.size(), isConst());
+	TRACE2("%s(%d), func %s defined in %s, param_size=%lu, const=%d, ", __FUNCTION__, inst_id, getDebugPath().c_str(), definedIn().c_str(), m_func_params.size(), isConst());
 
 	if (typeList.size() == 0 && m_func_params.size() == 1)
 	{
@@ -1295,14 +1386,14 @@ int CTypeDef::checkCallParams(const std::vector<TypeDefPointer>& typeList, bool 
 		if (i < typeList.size())
 		{
 			int n = comparableWith(pVarDef->getType(), typeList[i]);
-			TRACE2("checkCallParams, i=%u, def=%s, real=%s, n=%d; ", i, pVarDef->getType()->toFullString().c_str(), typeList[i]->toFullString().c_str(), n);
+			TRACE2("%s(%d), i=%u, def=%s, real=%s, n=%d; ", __FUNCTION__, inst_id, i, pVarDef->getType()->toFullString().c_str(), typeList[i]->toFullString().c_str(), n);
 			if (n < 0)
 				return -1;
 			score += n;
 		}
 		else if (pVarDef->getInitExpr() == NULL)
 		{
-			TRACE2("insufficient params at %u, return -1\n", i);
+			TRACE2("%s(%d), insufficient params at %u, return -1\n", __FUNCTION__, inst_id, i);
 			return -1;
 		}
 		//CExpr* pExpr = param_v[i];
@@ -1310,10 +1401,10 @@ int CTypeDef::checkCallParams(const std::vector<TypeDefPointer>& typeList, bool 
 
 	if (isConst())
 	{
-		TRACE2("score=%d, return %d\n", score, score + (bCallerIsConst ? 1 : 0));
+		TRACE2("%s(%d), score=%d, return %d\n", __FUNCTION__, inst_id, score, score + (bCallerIsConst ? 1 : 0));
 		return score + (bCallerIsConst ? 1 : 0);
 	}
-	TRACE2("score=%d, return %d\n", score, (bCallerIsConst ? -1 : score + 1));
+	TRACE2("%s(%d), score=%d, return %d\n", __FUNCTION__, inst_id, score, (bCallerIsConst ? -1 : score + 1));
 	return (bCallerIsConst ? -1 : score + 1);
 }
 
@@ -1371,12 +1462,22 @@ void CTypeDef::setFuncFlowType(FlowType flow)
 	}
 }
 
-std::string CTypeDef::toString(int depth)
+std::string CTypeDef::toString(int depth, bool bDoxygen)
 {
 	std::string ret_s;
 
 	if (!m_display_str.empty())
+	{
+		if (bDoxygen)
+		{
+			TypeDefPointer pRoot = sharedFromThis();
+			while (pRoot->getDepth() == 0 && !pRoot->isBaseType())
+				pRoot = pRoot->getBaseType();
+			if (pRoot->isBaseType() && pRoot->getClassDef())
+				return pRoot->getClassDef()->getDoxygenLink(m_display_str);
+		}
 		return m_display_str;
+	}
 
 	if (isConst())
 		ret_s += "const ";
@@ -1402,7 +1503,7 @@ std::string CTypeDef::toString(int depth)
 			break;
 		}
 		case SEMANTIC_TYPE_DATA_MEMBER_POINTER:
-			ret_s += m_pBaseTypeDef->toString() + " " + m_pFuncReturnType->toString() + "::*";
+			ret_s += m_pBaseTypeDef->toString(0, bDoxygen) + " " + m_pFuncReturnType->toString(0, bDoxygen) + "::*";
 			break;
 
 		case SEMANTIC_TYPE_TYPENAME:
@@ -1412,7 +1513,7 @@ std::string CTypeDef::toString(int depth)
 		}
 		case SEMANTIC_TYPE_TYPEOF:
 		{
-			ret_s += "__typeof(" + m_typeof_twn.toString() + ")";
+			ret_s += "__typeof(" + m_typeof_expr_node->toString() + ")";
 			break;
 		}
 		case SEMANTIC_TYPE_TEMPLATE:
@@ -1421,26 +1522,45 @@ std::string CTypeDef::toString(int depth)
 			break;
 		}
 		default:
+		{
 			MY_ASSERT(m_pSpecialType);
-			ret_s += ((CClassDef*)m_pSpecialType)->toString(depth);
+			CClassDef* pClassDef = (CClassDef*)m_pSpecialType;
+			if (bDoxygen)
+				ret_s += pClassDef->getDoxygenLink(pClassDef->toString(depth));
+			else
+				ret_s += pClassDef->toString(depth);
 			break;
+		}
 		}
 		return ret_s;
 	}
 
-	if (!m_name.empty())
+	if (!m_name.empty() && getDepth() == 0)
 	{
+		std::string display_s = getRelativePath(getParent(), m_name);
 		MY_ASSERT(getParent());
-		ret_s += getRelativePath(getParent(), m_name);
+		TypeDefPointer pRoot;
+		if (bDoxygen)
+		{
+			pRoot = sharedFromThis();
+			while (pRoot->getDepth() == 0 && !pRoot->isBaseType())
+				pRoot = pRoot->getBaseType();
+			if (pRoot->isBaseType() && pRoot->getClassDef())
+				ret_s += pRoot->getClassDef()->getDoxygenLink(display_s);
+			else
+				pRoot = TypeDefPointer();
+		}
+		if (!pRoot)
+			ret_s += display_s;
 	}
 	else
-		ret_s += m_pBaseTypeDef->toString();
+		ret_s += m_pBaseTypeDef->toString(depth, bDoxygen);
 	//if (m_pDeclVarNode)
 	//	ret_s += displaySourceTreeDeclVar(m_pDeclVarNode, " ");
 	for (int i = 0; i < m_depth; i++)
 		ret_s += "*";
-	if (isReference())
-		ret_s += "&";
+	for (int i = 0; i < m_nReference; i++)
+	    ret_s += "&";
 
 	return ret_s;
 }
@@ -1543,13 +1663,15 @@ std::string CTypeDef::toFullString()
         switch (m_type)
         {
         case SEMANTIC_TYPE_BASIC:
-            MY_ASSERT(m_basic_tokens.size() > 0);
-            for (size_t i = 0; i < m_basic_tokens.size(); i++)
+            if (m_basic_tokens.size() > 0) // it might be empty for unresolved type
 			{
-				const std::string& s = m_basic_tokens[i];
-                ret_s += s + " ";
+				for (size_t i = 0; i < m_basic_tokens.size(); i++)
+				{
+					const std::string& s = m_basic_tokens[i];
+					ret_s += s + " ";
+				}
+				ret_s.resize(ret_s.size() - 1);
 			}
-            ret_s.resize(ret_s.size() - 1);
             break;
         case SEMANTIC_TYPE_FUNC:
         {
@@ -1567,7 +1689,7 @@ std::string CTypeDef::toFullString()
         }
         case SEMANTIC_TYPE_TYPEOF:
         {
-            ret_s += "__typeof(" + m_typeof_twn.toString() + ")";
+            ret_s += "__typeof(" + m_typeof_expr_node->toString() + ")";
             break;
         }
         case SEMANTIC_TYPE_TEMPLATE:
@@ -1591,7 +1713,7 @@ std::string CTypeDef::toFullString()
 
 	if (bConst && (ret_s.size() < 6 || ret_s.substr(ret_s.size() - 6, 6) != " const"))
 		ret_s += " const";
-	if (isReference())
+	for (int i = 0; i < m_nReference; i++)
 	    ret_s += "&";
 
 	return ret_s;
@@ -1606,6 +1728,17 @@ bool CTypeDef::isVoid()
 		return m_basic_tokens.size() == 1 && m_basic_tokens[0] == "void";
 
 	return getBaseType()->isVoid();
+}
+
+bool CTypeDef::isNumType()
+{
+	if (m_depth != 0 || m_type != SEMANTIC_TYPE_BASIC)
+		return false;
+	
+	if (isBaseType())
+		return m_basic_tokens.size() == 1 && m_basic_tokens[0] != "void" && m_basic_tokens[0] != "va_list" && m_basic_tokens[0] != "__builtin_va_list" && m_basic_tokens[0] != "__nullptr";
+
+	return getBaseType()->isNumType();
 }
 
 bool CTypeDef::is_abstract()
@@ -1626,6 +1759,14 @@ bool CTypeDef::is_class()
 		return false;
 
 	return (m_type == SEMANTIC_TYPE_CLASS || m_type == SEMANTIC_TYPE_STRUCT);
+}
+
+bool CTypeDef::is_union()
+{
+	if (!isBaseType())
+		return false;
+
+	return (m_type == SEMANTIC_TYPE_UNION);
 }
 
 bool CTypeDef::is_empty()
@@ -1669,6 +1810,22 @@ bool CTypeDef::is_pod()
 	return ((CClassDef*)m_pSpecialType)->is_pod();
 }
 
+bool CTypeDef::is_polymorphic()
+{
+	if (!isBaseType())
+	{
+		if (getDepth() > 0)
+			return true;
+		return getBaseType()->is_polymorphic();
+	}
+
+	if (m_type != SEMANTIC_TYPE_CLASS && m_type != SEMANTIC_TYPE_STRUCT && m_type != SEMANTIC_TYPE_UNION)
+		return true; // seems GNU return true while MSVC returns false
+
+	MY_ASSERT(m_pSpecialType);
+	return ((CClassDef*)m_pSpecialType)->is_polymorphic();
+}
+
 bool CTypeDef::has_nothrow_assign()
 {
 	if (getDepth() > 0)
@@ -1685,6 +1842,24 @@ bool CTypeDef::has_nothrow_assign()
 
 	MY_ASSERT(m_pSpecialType);
 	return ((CClassDef*)m_pSpecialType)->has_nothrow_assign();
+}
+
+bool CTypeDef::has_nothrow_constructor()
+{
+	if (getDepth() > 0)
+		return true;
+
+	if (!isBaseType())
+		return getBaseType()->has_nothrow_constructor();
+
+	if (m_type == SEMANTIC_TYPE_BASIC || m_type == SEMANTIC_TYPE_ENUM || m_type == SEMANTIC_TYPE_UNION)
+		return true;
+
+	if (m_type != SEMANTIC_TYPE_CLASS && m_type != SEMANTIC_TYPE_STRUCT)
+		return false;
+
+	MY_ASSERT(m_pSpecialType);
+	return ((CClassDef*)m_pSpecialType)->has_nothrow_constructor();
 }
 
 bool CTypeDef::has_nothrow_copy()
@@ -1741,6 +1916,24 @@ bool CTypeDef::has_trivial_copy()
 	return ((CClassDef*)m_pSpecialType)->has_trivial_copy();
 }
 
+bool CTypeDef::has_trivial_constructor()
+{
+	if (getDepth() > 0)
+		return true;
+
+	if (!isBaseType())
+		return getBaseType()->has_trivial_constructor();
+
+	if (m_type == SEMANTIC_TYPE_BASIC || m_type == SEMANTIC_TYPE_ENUM)
+		return true;
+
+	if (m_type != SEMANTIC_TYPE_CLASS && m_type != SEMANTIC_TYPE_STRUCT)
+		return false;
+
+	MY_ASSERT(m_pSpecialType);
+	return ((CClassDef*)m_pSpecialType)->has_trivial_constructor();
+}
+
 bool CTypeDef::has_trivial_destructor()
 {
 	if (getDepth() > 0)
@@ -1757,6 +1950,24 @@ bool CTypeDef::has_trivial_destructor()
 
 	MY_ASSERT(m_pSpecialType);
 	return ((CClassDef*)m_pSpecialType)->has_trivial_destructor();
+}
+
+bool CTypeDef::has_virtual_destructor()
+{
+	if (getDepth() > 0)
+		return true;
+
+	if (!isBaseType())
+		return getBaseType()->has_virtual_destructor();
+
+	if (m_type == SEMANTIC_TYPE_BASIC || m_type == SEMANTIC_TYPE_ENUM)
+		return true;
+
+	if (m_type != SEMANTIC_TYPE_CLASS && m_type != SEMANTIC_TYPE_STRUCT)
+		return false;
+
+	MY_ASSERT(m_pSpecialType);
+	return ((CClassDef*)m_pSpecialType)->has_virtual_destructor();
 }
 
 std::string CTypeDef::type2String(SemanticDataType basic_type)
@@ -1907,7 +2118,7 @@ void CVarDef::changeName(const std::string& new_name, CExpr* pNewExpr)
 		}
 		MY_ASSERT(n >= 0);
 
-		for (int i = 0; i < pFunc->getChildrenCount(); i++)
+		for (unsigned i = 0; i < pFunc->getChildrenCount(); i++)
 			((CStatement*)pFunc->getChildAt(i))->changeRefVarName(old_name, pNewExpr);
 	}
 	else
@@ -1923,7 +2134,7 @@ void CVarDef::changeName(const std::string& new_name, CExpr* pNewExpr)
 
 		CScope* pScope = m_pParent->getParent();
 		int n = -1;
-		for (int i = 0; i < pScope->getChildrenCount(); i++)
+		for (unsigned i = 0; i < pScope->getChildrenCount(); i++)
 		{
 			if (pScope->getChildAt(i) == m_pParent)
 			{
@@ -1944,7 +2155,7 @@ void CVarDef::changeName(const std::string& new_name, CExpr* pNewExpr)
 			MY_ASSERT(((CStatement*)m_pParent)->getDefType() == DEF_TYPE_FUNC_VAR_DEF);
 			((CStatement*)m_pParent)->changeDefVarName(old_name, new_name);
 		}
-		for (n++; n < pScope->getChildrenCount(); n++)
+		for (n++; n < (int)pScope->getChildrenCount(); n++)
 			((CStatement*)pScope->getChildAt(n))->changeRefVarName(old_name, pNewExpr);
 	}
 
@@ -2010,10 +2221,9 @@ CUsingObject::CUsingObject(const std::string& name, SymbolDefObject* pSymbolObj)
 
 void checkBestMatchedFunc(const std::vector<CGrammarObject*>& children, const std::vector<TypeDefPointer>& typeList, bool bCallerIsConst, int& maxMatchScore, std::vector<CGrammarObject*>& matched_v)
 {
-	TRACE2("SymbolDefObject::%s at %s:%d, callerIsConst=%d, typeList=(", __FUNCTION__, g_cur_file_stack.back().c_str(), g_cur_line_no, bCallerIsConst);
-	for (unsigned i = 0; i < typeList.size(); i++)
-		TRACE2("%s, ", typeList[i]->toFullString().c_str());
-	TRACE(")\n");
+	int inst_id = g_inst_id++;
+	TRACE2("%s(%d) at %s:%d, callerIsConst=%d, typeList=(%s), choices=%u\n", __FUNCTION__, inst_id, g_cur_file_stack.back().c_str(), g_cur_line_no, 
+		bCallerIsConst, typeListToFullString(typeList).c_str(), children.size());
 	//MY_ASSERT(type == GO_TYPE_FUNC_DECL);
 
 	for (unsigned i = 0; i < children.size(); i++)
@@ -2025,9 +2235,10 @@ void checkBestMatchedFunc(const std::vector<CGrammarObject*>& children, const st
 		case GO_TYPE_FUNC_DECL:
 		{
 			CFuncDeclare* pFuncDeclare = (CFuncDeclare*)pGrammarObj;
-			TRACE2("SymbolDefObject::%s, i=%u, func decl %s defined in %s\n", __FUNCTION__, i, pFuncDeclare->getName().c_str(), pFuncDeclare->definedIn().c_str());
+			TRACE2("%s(%d), %u/%u, func decl %s defined in %s, funcDeclare=%s\n", __FUNCTION__, inst_id, i, children.size(), pFuncDeclare->getName().c_str(), 
+				pFuncDeclare->definedIn().c_str(), pFuncDeclare->getType()->toString().c_str());
 			n = pFuncDeclare->getType()->checkCallParams(typeList, bCallerIsConst);
-			TRACE2("SymbolDefObject::%s, func decl return %d\n", __FUNCTION__, n);
+			TRACE2("%s(%d), %u/%u, func decl return %d\n", __FUNCTION__, inst_id, i, children.size(), n);
 			break;
 		}
 		case GO_TYPE_TEMPLATE:
@@ -2035,18 +2246,21 @@ void checkBestMatchedFunc(const std::vector<CGrammarObject*>& children, const st
 			CTemplate* pTemplate = (CTemplate*)pGrammarObj;
 			MY_ASSERT(pTemplate->getTemplateType() == TEMPLATE_TYPE_FUNC);
 
-			TemplateResolvedDefParamVector typeDefMap;
-			TRACE2("SymbolDefObject::%s, i=%u, template %s defined in %s\n", __FUNCTION__, i, pTemplate->getName().c_str(), pTemplate->definedIn().c_str());
-			n = pTemplate->funcCheckFitForTypeList(typeList, typeDefMap);
-			TRACE2("SymbolDefObject::%s, template returned %d\n", __FUNCTION__, n);
+			TemplateResolvedDefParamVector typeDefMap = pTemplate->prepareResolvedDefParams();
+			TRACE2("%s(%d), %u/%u, %s template %s defined in %s\n", __FUNCTION__, inst_id, i, children.size(), (pTemplate->isInstancedTemplate() ? "instanced" : "root"), pTemplate->getName().c_str(), pTemplate->definedIn().c_str());
+			if (pTemplate->isInstancedTemplate())
+				n = pTemplate->funcInstancedCheckFitForTypeList(typeList, typeDefMap);
+			else
+				n = pTemplate->funcRootCheckFitForTypeList(typeList, typeDefMap);
+			TRACE2("%s(%d), %u/%u, template returned %d\n", __FUNCTION__, inst_id, i, children.size(), n);
 			break;
 		}
 		case GO_TYPE_USING_OBJECTS:
 		{
 			CUsingObject* pObj = (CUsingObject*)pGrammarObj;
-			TRACE2("SymbolDefObject::%s, i=%u, using objects\n", __FUNCTION__, i);
+			TRACE2("%s(%d), %u/%u, using objects\n", __FUNCTION__, inst_id, i, children.size());
 			checkBestMatchedFunc(pObj->getSymbolObj()->children, typeList, bCallerIsConst, maxMatchScore, matched_v);
-			TRACE2("SymbolDefObject::%s, using objects, return score=%d, matched_count=%d\n", __FUNCTION__, maxMatchScore, matched_v.size());
+			TRACE2("%s(%d), %u/%u, using objects, return score=%d, matched_count=%d\n", __FUNCTION__, inst_id, i, children.size(), maxMatchScore, matched_v.size());
 			continue;
 		}
 		default:
@@ -2062,6 +2276,96 @@ void checkBestMatchedFunc(const std::vector<CGrammarObject*>& children, const st
 			matched_v.clear();
 			matched_v.push_back(pGrammarObj);
 		}
+	}
+}
+
+CScope::CScope(CScope* pParent, const std::string& name) : CGrammarObject(pParent)
+{
+	m_bRealScope = true;
+	m_bTransformed = false;
+	m_name = name;
+	m_doxygen_fp = NULL;
+}
+
+CScope::~CScope()
+{
+	//printf("destruction %lx\n", this);
+	for (size_t i = 0; i < m_children.size(); i++)
+	{
+		CScope* pObj = m_children[i];
+		//printf("deleting %lx, {%s}\n", pObj, pObj->toString(2).c_str());
+		delete pObj;
+	}
+
+	if (m_doxygen_fp)
+	{
+		fclose(m_doxygen_fp);
+		m_doxygen_fp = NULL;
+
+		if (m_doxygen_open_prev)
+		{
+			m_doxygen_open_prev->m_doxygen_open_next = m_doxygen_open_next;
+		}
+		else
+		{
+			MY_ASSERT(g_doxygen_open_earliest == this);
+			g_doxygen_open_earliest = m_doxygen_open_next;
+		}
+		if (m_doxygen_open_next)
+		{
+			m_doxygen_open_next->m_doxygen_open_prev = m_doxygen_open_prev;
+		}
+		else
+		{
+			MY_ASSERT(g_doxygen_open_lastest == this);
+			g_doxygen_open_lastest = m_doxygen_open_prev;
+		}
+		g_doxygen_open_count--;
+	}
+}
+
+FILE* CScope::openDoxygenFile()
+{
+	if (m_doxygen_fp)
+		return m_doxygen_fp;
+
+	std::string fpath = std::string("./logs/") + getDoxygenFName();
+	m_doxygen_fp = fopen(fpath.c_str(), "at");
+	int err;
+	if (m_doxygen_fp == NULL)
+		err = errno;
+
+	m_doxygen_open_prev = m_doxygen_open_next = NULL;
+	if (g_doxygen_open_lastest)
+	{
+		g_doxygen_open_lastest->m_doxygen_open_next = this;
+		m_doxygen_open_prev = g_doxygen_open_lastest;
+	}
+	g_doxygen_open_lastest = this;
+	g_doxygen_open_count++;
+	if (g_doxygen_open_count == 1)
+		g_doxygen_open_earliest = this;
+	else if (g_doxygen_open_count > MAX_DOXYGEN_FILE_COUNT)
+	{
+		fclose(g_doxygen_open_earliest->m_doxygen_fp);
+		g_doxygen_open_earliest->m_doxygen_fp = NULL;
+		g_doxygen_open_earliest = g_doxygen_open_earliest->m_doxygen_open_next;
+		g_doxygen_open_earliest->m_doxygen_open_prev = NULL;
+		g_doxygen_open_count--;
+	}
+
+	return m_doxygen_fp;
+}
+
+void CScope::createDoxygenFile()
+{
+	openDoxygenFile();
+	fprintf(m_doxygen_fp, "<HTML><BODY>");
+
+	if (m_pParent)
+	{
+		fprintf(m_doxygen_fp, "Parent: %s<br><br>\n", m_pParent->getDoxygenLink(m_pParent->getName()).c_str());
+		fflush(m_doxygen_fp);
 	}
 }
 
@@ -2083,7 +2387,13 @@ void CScope::addFuncDeclare(CFuncDeclare* pFuncDecl)
 {
 	MY_ASSERT(m_bRealScope);
 	MY_ASSERT(pFuncDecl->getType());
-	TRACE2("\n%s, ADDING FUNC DECLARE %s:%d in %s, FLOWTYPE=%d\n", pFuncDecl->definedIn().c_str(), pFuncDecl->getName().c_str(), pFuncDecl, getDebugPath().c_str(), pFuncDecl->getType()->isFuncFlow());
+	TRACE2("\n%s, ADDING FUNC DECLARE %s:0x%lx in %s, FLOWTYPE=%d\n", pFuncDecl->definedIn().c_str(), pFuncDecl->getName().c_str(), pFuncDecl, getDebugPath().c_str(), pFuncDecl->getType()->isFuncFlow());
+	if (g_write_doxygen_files)
+	{
+		openDoxygenFile();
+		fprintf(m_doxygen_fp, "Func %s<br>\n", pFuncDecl->getType()->toFuncString(std::string("<b>") + pFuncDecl->getName() + "</b>").c_str());
+		fflush(m_doxygen_fp);
+	}
 	SymbolDefMap::iterator it = m_symbol_map.find(pFuncDecl->getName());
 	if (it != m_symbol_map.end())
 	{
@@ -2127,7 +2437,17 @@ void CScope::addTypeDef(TypeDefPointer pTypeDef)
 	MY_ASSERT(!pTypeDef->getClassDef());
 	MY_ASSERT(!pTypeDef->getName().empty());
 
-	TRACE2("\n%s, ADDING TYPEDEF %s:%d, TYPE=%s\n", definedIn().c_str(), pTypeDef->getDebugPath().c_str(), pTypeDef->getType(), pTypeDef->toFullString().c_str());
+	TRACE2("\n%s, ADDING TYPEDEF %s, %s#%d, TYPE=%s\n", definedIn().c_str(), pTypeDef->getName().c_str(), pTypeDef->getDebugPath().c_str(), pTypeDef->getType(), 
+		pTypeDef->toFullString().c_str());
+	if (g_write_doxygen_files)
+	{
+		openDoxygenFile();
+		if (!pTypeDef->isBaseType() && pTypeDef->getBaseType()->isBaseType() && pTypeDef->getBaseType()->getClassDef())
+			fprintf(m_doxygen_fp, "%s %s<br>\n", getSemanticTypeName(pTypeDef->getBaseType()->getClassDef()->getType()).c_str(), pTypeDef->getBaseType()->getClassDef()->getDoxygenLink(pTypeDef->getBaseType()->getClassDef()->getName()).c_str());
+		else
+			fprintf(m_doxygen_fp, "Typedef %s <b>%s</b> = %s<br>\n", getSemanticTypeName(pTypeDef->getType()).c_str(), pTypeDef->getName().c_str(), (pTypeDef->getDepth() > 0 ? pTypeDef->toString(0, true) : pTypeDef->getBaseType()->toString(0, true)).c_str());
+		fflush(m_doxygen_fp);
+	}
 	SymbolDefMap::iterator it = m_symbol_map.find(pTypeDef->getName());
 	if (it == m_symbol_map.end())
 		m_symbol_map[pTypeDef->getName()].type = GO_TYPE_TYPEDEF;
@@ -2141,10 +2461,26 @@ void CScope::addVarDef(CVarDef* pVarDef)
 {
 	MY_ASSERT(m_bRealScope);
 	//MY_ASSERT(!pVarDef->getName().empty());
-	TRACE2("%s:%d, ADDING VAR %s(%s), type=%s", g_cur_file_stack.back().c_str(), g_cur_line_no, pVarDef->getName().c_str(), pVarDef->getDebugPath().c_str(), pVarDef->getType()->toString().c_str());
+	TRACE2("%s:%d, ADDING VAR %s, path=%s, type=%s(0x%lx) IN %s\n", g_cur_file_stack.back().c_str(), g_cur_line_no, pVarDef->getName().c_str(), 
+		pVarDef->getDebugPath().c_str(), pVarDef->getType()->toString().c_str(), pVarDef->getType(), getDebugPath().c_str());
+
+	if (g_write_doxygen_files && !m_doxygen_fname.empty())
+	{
+		openDoxygenFile();
+		fprintf(m_doxygen_fp, "Var %s <b>%s</b>", pVarDef->getType()->toString().c_str(), pVarDef->getName().c_str());
+	}
 	if (pVarDef->hasValue())
+	{
 		TRACE2(", value=%d", pVarDef->getValue());
+		if (g_write_doxygen_files && m_doxygen_fp)
+			fprintf(m_doxygen_fp, "=%s", ltoa(pVarDef->getValue()));
+	}
 	TRACE("\n");
+	if (g_write_doxygen_files && m_doxygen_fp)
+	{
+		fprintf(m_doxygen_fp, "<br>\n");
+		fflush(m_doxygen_fp);
+	}
 	SymbolDefMap::iterator it = m_symbol_map.find(pVarDef->getName());
 	if (it != m_symbol_map.end())
 	{
@@ -2171,13 +2507,20 @@ void CScope::removeVarDef(CVarDef* pVarDef)
 
 void CScope::addEnumDef(const std::string& name, CClassDef* pClassDef, int nValue)
 {
-	MY_ASSERT(m_bRealScope);
+	MY_ASSERT(false); // obsoleted
+	/*MY_ASSERT(m_bRealScope);
 	TRACE2("%s, ADDING ENUM %s=%d IN %s\n", pClassDef->definedIn().c_str(), name.c_str(), nValue, getDebugPath().c_str());
+	if (g_write_doxygen_files)
+	{
+		openDoxygenFile();
+		fprintf(m_doxygen_fp, "enum %s=%s<br>\n", name.c_str(), ltoa(nValue));
+		fflush(m_doxygen_fp);
+	}
 	SymbolDefMap::iterator it = m_symbol_map.find(name);
 	MY_ASSERT(it == m_symbol_map.end());
 	m_symbol_map[name].type = GO_TYPE_ENUM;
 	m_symbol_map[name].children.push_back(pClassDef);
-	m_symbol_map[name].nValue = nValue;
+	m_symbol_map[name].nValue = nValue;*/
 }
 
 void CScope::addTemplate(CTemplate* pTemplate)
@@ -2185,7 +2528,14 @@ void CScope::addTemplate(CTemplate* pTemplate)
 	MY_ASSERT(m_bRealScope);
 	MY_ASSERT(!pTemplate->getName().empty());
 	MY_ASSERT(pTemplate->getTemplateType() != TEMPLATE_TYPE_VAR);
-	TRACE2("%s:%d, ADDING %s TEMPLATE %s IN %s\n", g_cur_file_stack.back().c_str(), g_cur_line_no, templateTypeToString(pTemplate->getTemplateType()).c_str(), pTemplate->getName().c_str(), getDebugPath().c_str());
+	TRACE2("%s:%d, ADDING %s TEMPLATE %s(0x%lx) IN %s\n", g_cur_file_stack.back().c_str(), g_cur_line_no, 
+		templateTypeToString(pTemplate->getTemplateType()).c_str(), pTemplate->getName().c_str(), pTemplate, getDebugPath().c_str());
+	if (g_write_doxygen_files)
+	{
+		openDoxygenFile();
+		fprintf(m_doxygen_fp, "%s<br>\n", pTemplate->toHeaderString(0, true).c_str());
+		fflush(m_doxygen_fp);
+	}
 	SymbolDefMap::iterator it = m_symbol_map.find(pTemplate->getName());
 	if (pTemplate->getTemplateType() == TEMPLATE_TYPE_CLASS)
 	{
@@ -2229,10 +2579,7 @@ void CScope::addTemplate(CTemplate* pTemplate)
 		if (it != m_symbol_map.end())
 		{
 			GrammarObjectType go_type = it->second.type;
-			//if (it->second.type == GO_TYPE_USING_OBJECTS)
-			//	it->second.type = GO_TYPE_FUNC_DECL;
-			//else
-				MY_ASSERT(it->second.type == GO_TYPE_FUNC_DECL);
+			MY_ASSERT(it->second.type == GO_TYPE_FUNC_DECL);
 		}
 		else
 		{
@@ -2251,6 +2598,13 @@ void CScope::addNamespace(CNamespace* pNamespace)
 	MY_ASSERT(it == m_symbol_map.end());
 	m_symbol_map[pNamespace->getName()].type = GO_TYPE_NAMESPACE;
 	m_symbol_map[pNamespace->getName()].children.push_back(pNamespace);
+
+	if (g_write_doxygen_files)
+	{
+		openDoxygenFile();
+		fprintf(m_doxygen_fp, "Namespace %s<br>\n", pNamespace->getDoxygenLink(pNamespace->getName().empty() ? "undefined" : pNamespace->getName()).c_str());
+		fflush(m_doxygen_fp);
+	}
 }
 
 void CScope::addUsingObjects(const std::string& name, SymbolDefObject* pSymbolObj)
@@ -2259,6 +2613,12 @@ void CScope::addUsingObjects(const std::string& name, SymbolDefObject* pSymbolOb
 	TRACE2("%s:%d, ADDING USING OBJECTS %s(0x%lx):%d IN %s\n", g_cur_file_stack.back().c_str(), g_cur_line_no, name.c_str(), (unsigned long)pSymbolObj, pSymbolObj->type, getDebugPath().c_str());
 	if (pSymbolObj->type == GO_TYPE_TEMPLATE)
 		TRACE2("ADDING USING OBJECTS TEMPLATE, 0x%lx:%d\n", (unsigned long)pSymbolObj->getTemplateAt(0), pSymbolObj->getTemplateAt(0)->getTemplateType());
+	if (g_write_doxygen_files)
+	{
+		openDoxygenFile();
+		fprintf(m_doxygen_fp, "using %s<br>\n", name.c_str());
+		fflush(m_doxygen_fp);
+	}
 	//MY_ASSERT(m_symbol_map.find(name) == m_symbol_map.end());
 	GrammarObjectType type = pSymbolObj->type;
 	CUsingObject* pUsingObject = new CUsingObject(name, pSymbolObj);
@@ -2293,25 +2653,16 @@ SymbolDefObject* CScope::findSymbol(const std::string& name, FindSymbolScope sco
 		return getRealScope()->findSymbol(name, scope, mode);
 	}
 
-	/*if (bCheckParents && name == getName())
-	{
-		TRACE2("found myself as symbol %s in %s, type=%d\n", name.c_str(), getDebugPath().c_str(), getGoType());
-		if (getGoType() == GO_TYPE_TEMPLATE && ((CTemplate*)this)->getTemplateType() == TEMPLATE_TYPE_CLASS && getParent()->getGoType() == GO_TYPE_TEMPLATE && getName() == getParent()->getName()) // then it's a specialized template
-		  return ((CTemplate*)getParent())->findSpecializedTemplate((CTemplate*)this);
-
-		return getParent()->getRealScope()->findSymbol(name, false);
-	}*/
-
 	SymbolDefMap::iterator it = m_symbol_map.find(name);
 	if (it != m_symbol_map.end())
 	{
 		MY_ASSERT(it->second.children.size() > 0);
-		if (mode == FIND_SYMBOL_MODE_ANY || it->second.findChildByType(GO_TYPE_TEMPLATE))
+		if (mode != FIND_SYMBOL_MODE_TEMPLATE || it->second.findChildByType(GO_TYPE_TEMPLATE))
 		{
 			TRACE2("found symbol %s(0x%lx) in %s, type=%d, type2=%d\n", name.c_str(), (long unsigned)it->second.children[0], getDebugPath().c_str(), it->second.type, it->second.children[0]->getGoType());
 			return &it->second;
 		}
-		TRACE2("found symbol %s(0x%lx) in %s, type=%d, type2=%d, not a template, continue.             ", name.c_str(), (long unsigned)it->second.children[0], getDebugPath().c_str(), it->second.type, it->second.children[0]->getGoType());
+		TRACE2("found symbol %s(0x%lx) in %s, type=%d, type2=%d, not a template, continue. ", name.c_str(), (long unsigned)it->second.children[0], getDebugPath().c_str(), it->second.type, it->second.children[0]->getGoType());
 	}
 
 	if (scope == FIND_SYMBOL_SCOPE_PARENT && m_pParent)
@@ -2373,19 +2724,26 @@ CFuncDeclare* CScope::findFuncDeclare(const std::string& name, const ExprVector&
 		return NULL;
 	}
 
+	std::string func_disp_str = name + "(";
+
 	std::vector<TypeDefPointer> typeList;
 	for (size_t i = 0; i < param_list.size(); i++)
 	{
+		if (i > 0)
+			func_disp_str += ", ";
+
 		CExpr* pExpr = param_list[i];
 		typeList.push_back(createTypeByDepth(pExpr->getReturnType(), pExpr->getReturnDepth()));
+		func_disp_str += pExpr->toString();
 	}
+	func_disp_str += ")";
 
 	int maxMatchScore = -1;
 	std::vector<CGrammarObject*> matched_v;
 	checkBestMatchedFunc(it->second.children, typeList, bCallerIsConst, maxMatchScore, matched_v);
 	if (matched_v.empty())
 	{
-		throw("Cannot find matched func definition for " + name);
+		throw("Cannot find matched func definition for " + func_disp_str);
 		return NULL;
 	}
 	if (matched_v.size() > 1)
@@ -2425,8 +2783,9 @@ CFuncDeclare* CScope::findFuncDeclare(const std::string& name, const ExprVector&
 */
 SymbolDefObject* CScope::findSymbolEx(const TokenWithNamespace& twn, bool bCheckingParents/* = true*/, bool bCreateIfNotExists/* = false*/, bool bCreateAsType/* = false*/)
 {
+	int inst_id = g_inst_id++;
     std::string twn_s = twn.toString();
-	TRACE2("::findSymbolEx, twn=%s, path=%s, bCP=%d, bCINE=%d, bCAT=%d\n", twn.toString().c_str(), getDebugPath().c_str(), bCheckingParents, bCreateIfNotExists, bCreateAsType);
+	TRACE2("%s(%d), twn=%s, path=%s, bCP=%d, bCINE=%d, bCAT=%d\n", __FUNCTION__, inst_id, twn.toString().c_str(), getDebugPath().c_str(), bCheckingParents, bCreateIfNotExists, bCreateAsType);
 	if (twn.getDepth() == 0)
 	{
 		MY_ASSERT(twn.hasRootSign()); // can't be an empty twn
@@ -2438,7 +2797,7 @@ SymbolDefObject* CScope::findSymbolEx(const TokenWithNamespace& twn, bool bCheck
 		pScope = &g_global_namespace;
 
 	SymbolDefObject* pDefObj = NULL;
-	for (int i = 0; i < twn.getDepth(); i++)
+	for (unsigned i = 0; i < twn.getDepth(); i++)
 	{
 		FindSymbolScope scope;
 		if (i == 0)
@@ -2468,7 +2827,7 @@ SymbolDefObject* CScope::findSymbolEx(const TokenWithNamespace& twn, bool bCheck
 		}
 
 		pDefObj = pScope->findSymbol(twn.getToken(i), scope, twn.scopeHasTemplate(i) ? FIND_SYMBOL_MODE_TEMPLATE : FIND_SYMBOL_MODE_ANY);
-		TRACE2("\nfindSymbolEx, findSymbol, i=%d, token=%s, return %s\n", i, twn.getToken(i).c_str(), (pDefObj ? getGoTypeName(pDefObj->type).c_str() : "null"));
+		TRACE2("\n%s(%d), findSymbol, i=%d, token=%s, return %s\n", __FUNCTION__, inst_id, i, twn.getToken(i).c_str(), (pDefObj ? getGoTypeName(pDefObj->type).c_str() : "null"));
 		if (!pDefObj)
 		{
 			if (pScope->getGoType() == GO_TYPE_CLASS && pScope->getParent()->getGoType() == GO_TYPE_TEMPLATE && pScope->getParent()->getParent()->getGoType() == GO_TYPE_TEMPLATE)
@@ -2496,11 +2855,14 @@ SymbolDefObject* CScope::findSymbolEx(const TokenWithNamespace& twn, bool bCheck
 					CTemplate* pTemplate = new CTemplate(pScope, TEMPLATE_TYPE_CLASS, twn.getToken(i));
 					TRACE2("\nCREATING root TEMPLATE %s in decl\n", pTemplate->getDebugPath().c_str());
 					pTemplate->setDefLocation(g_cur_file_stack, g_cur_line_no);
+					pTemplate->writeDoxygenHeader();
 					pScope->addTemplate(pTemplate);
 					pDefObj = pScope->findSymbol(twn.getToken(i), FIND_SYMBOL_SCOPE_SCOPE);
 				}
 				else if (bCreateAsType)
 				{
+					if (checkTemplateParamHasTypename(twn, i)) // the template cannot be resolved to a class
+						return NULL;
 					TypeDefPointer pTypeDef = pScope->createClassAsChild(twn.getToken(i), SEMANTIC_TYPE_CLASS);
 					if (pScope->getParentTemplate())
 						pTypeDef->getBaseType()->getClassDef()->setWithinTemplate();
@@ -2515,7 +2877,7 @@ SymbolDefObject* CScope::findSymbolEx(const TokenWithNamespace& twn, bool bCheck
 			else
 				return NULL;
 		}
-		TRACE2("\nfindSymbolEx, i=%d, depth=%d, type=%d\n", i, twn.getDepth(), pDefObj->type);
+		TRACE2("\n%s(%d), %d/%d, type=%d\n", __FUNCTION__, inst_id, i, twn.getDepth(), pDefObj->type);
 		if (i == twn.getDepth() - 1)
 		{
 			if (twn.scopeHasTemplate(i))
@@ -2531,6 +2893,36 @@ SymbolDefObject* CScope::findSymbolEx(const TokenWithNamespace& twn, bool bCheck
 						//TRACE2("CScope::findSymbolEx return %s\n", pScope->getDebugPath().c_str());
 						return pScope->getParent()->findSymbol(twn.getToken(i), FIND_SYMBOL_SCOPE_SCOPE);
 					}
+
+					MY_ASSERT(pDefObj->children.size() == 1);
+					MY_ASSERT(pDefObj->children[0]->getGoType() == GO_TYPE_TEMPLATE);
+					CTemplate* pTemplate = (CTemplate*)pDefObj->children[0];
+					MY_ASSERT(pTemplate->getTemplateType() == TEMPLATE_TYPE_FUNC);
+					TRACE2("\n%s(%d), %d/%d, its a template %s, try to instance it\n", __FUNCTION__, inst_id, i, twn.getDepth(), pTemplate->getDebugPath().c_str());
+					std::vector<TypeDefPointer> typeList;
+					for (size_t j = 0; j < twn.getTemplateParamCount(i); j++)
+					{
+						SourceTreeNode* pChild;
+						TypeDefPointer pTypeDef;
+						int t = twn.getTemplateParamAt(i, j, pChild);
+						MY_ASSERT(t == 0 || t == 1);
+						if (t == 0)
+						{
+							pTypeDef = getTypeDefByExtendedTypeVarNode(pChild);
+							MY_ASSERT(pTypeDef && !pTypeDef->hasTypename());
+							TRACE2("%s, func template param %u:%s resolve to %s\n", __FUNCTION__, j, displaySourceTreeExtendedTypeVar(pChild).c_str(), pTypeDef->toFullString().c_str());
+						}
+						else
+						{
+							pTypeDef = getTypeDefByFuncTypeNode(pChild);
+							MY_ASSERT(pTypeDef && !pTypeDef->hasTypename());
+							TRACE2("%s(%d), func template param %u:%s resolve to %s\n", __FUNCTION__, inst_id, j, displaySourceTreeFuncType(pChild).c_str(), pTypeDef->toFullString().c_str());
+						}
+						typeList.push_back(pTypeDef);
+					}
+					MY_ASSERT(!pTemplate->isInstancedTemplate());
+					CTemplate* pInstancedTemplate = pTemplate->funcRootInstanceByTypeParams(typeList);
+                    pDefObj = pTemplate->findSymbol(pInstancedTemplate->getName(), FIND_SYMBOL_SCOPE_LOCAL);
 				}
 				else if (pDefObj->type == GO_TYPE_TYPEDEF)
 				{
@@ -2552,7 +2944,7 @@ SymbolDefObject* CScope::findSymbolEx(const TokenWithNamespace& twn, bool bCheck
 
                     bool bHasTypename = checkTemplateParamHasTypename(twn, i);
 
-                    TRACE2("check bHasTypename, twn=%s, bHasTypename=%d\n", twn.toString().c_str(), bHasTypename);
+                    TRACE2("check bHasTypename, twn=%s, i=%d, bHasTypename=%d\n", twn.toString().c_str(), i, bHasTypename);
                     if (bHasTypename)
                     {
                         pTemplate = pTemplate->getTemplateByParams(twn, i);
@@ -2561,7 +2953,7 @@ SymbolDefObject* CScope::findSymbolEx(const TokenWithNamespace& twn, bool bCheck
                     }
                     else
                     {
-                        std::string s2 = getDebugPath();
+                        //std::string s2 = getDebugPath();
                         TypeDefPointer pTypeDef = pTemplate->classGetInstance(twn, i, this);
                         if (!pTypeDef)
                             return NULL;
@@ -2573,11 +2965,18 @@ SymbolDefObject* CScope::findSymbolEx(const TokenWithNamespace& twn, bool bCheck
                     }
                 }
 			}
-			TRACE2("\nfindSymbolEx, return %s\n", (pDefObj ? getGoTypeName(pDefObj->type).c_str() : "null"));
+			if (!pDefObj)
+				TRACE2("%s(%d), return null\n", __FUNCTION__, inst_id);
+			else
+			{
+				TRACE2("%s(%d), return %s, has %u children, first is %s\n", __FUNCTION__, inst_id, getGoTypeName(pDefObj->type).c_str(), pDefObj->children.size(), pDefObj->children[0]->getDebugPath().c_str());
+				if (pDefObj->type == GO_TYPE_TYPEDEF)
+					TRACE2("   value=%s\n", pDefObj->getTypeDef()->toFullString().c_str());
+			}
 			return pDefObj;
 		}
 
-		TRACE2("findSymbolEx, type=%d\n", pDefObj->type);
+		TRACE2("%s(%d), type=%d\n", __FUNCTION__, inst_id, pDefObj->type);
 		if (pDefObj->type == GO_TYPE_NAMESPACE)
 		{
 			MY_ASSERT(!twn.scopeHasTemplate(i));
@@ -2595,7 +2994,7 @@ SymbolDefObject* CScope::findSymbolEx(const TokenWithNamespace& twn, bool bCheck
 			pScope = pClassDef;
 			if (!pScope)
 			{
-				TRACE2("findSymbolEx, %s base type is not a class def, i=%d\n", twn.toString().c_str(), i);
+				TRACE2("%s(%d), %s base type is not a class def, i=%d\n", __FUNCTION__, inst_id, twn.toString().c_str(), i);
 				return NULL;
 			}
 			TRACE2("pScope=%s\n", pScope->getName().c_str());
@@ -2640,20 +3039,360 @@ SymbolDefObject* CScope::findSymbolEx(const TokenWithNamespace& twn, bool bCheck
 		}
 		else
 		{
-			TRACE2("findSymbolEx, invalid type=%d\n", pDefObj->type);
+			TRACE2("%s(%d), invalid type=%d\n", __FUNCTION__, inst_id, pDefObj->type);
 			return NULL;
 		}
 	}
 
-	TRACE("findSymbolEx, not found\n");
+	TRACE2("%s(%d), not found\n", __FUNCTION__, inst_id);
 	return NULL;
+}
+
+bool CScope::checkExprNodeHasTypename(const SourceTreeNode* pRoot)
+{
+	switch (exprGetType(pRoot))
+	{
+	case EXPR_TYPE_CONST_VALUE:			// const_value
+		return false;
+	case EXPR_TYPE_RIGHT_INC: 		// expr
+	case EXPR_TYPE_RIGHT_DEC:		// expr
+	case EXPR_TYPE_LEFT_INC:			// expr
+	case EXPR_TYPE_LEFT_DEC:			// expr
+	case EXPR_TYPE_POSITIVE:			// expr
+	case EXPR_TYPE_NEGATIVE:	// expr
+	case EXPR_TYPE_NOT:  			// expr
+	case EXPR_TYPE_BIT_NOT:			// expr
+	case EXPR_TYPE_INDIRECTION:		// expr
+	case EXPR_TYPE_ADDRESS_OF:		// expr
+	case EXPR_TYPE_EXTENSION:            // expr
+	{
+		if (checkExprNodeHasTypename(exprGetFirstNode(pRoot)))
+			return true;
+		break;
+	}
+	case EXPR_TYPE_THROW:			    // ?[expr]
+	{
+		if (!pRoot->pChild->param)
+			return false;
+		return checkExprNodeHasTypename(pRoot->pChild->pChild->pChild);
+	}
+	case EXPR_TYPE_ARRAY:			// expr expr
+	case EXPR_TYPE_MULTIPLE:	        // expr expr
+	case EXPR_TYPE_DIVIDE:   		// expr expr
+	case EXPR_TYPE_REMAINDER:	    // expr expr
+	case EXPR_TYPE_ADD:				// expr expr
+	case EXPR_TYPE_SUBTRACT:			// expr expr
+	case EXPR_TYPE_LEFT_SHIFT:		// expr expr
+	case EXPR_TYPE_RIGHT_SHIFT:		// expr expr
+	case EXPR_TYPE_LESS_THAN:		// expr expr
+	case EXPR_TYPE_LESS_EQUAL:		// expr expr
+	case EXPR_TYPE_GREATER_THAN:// expr expr
+	case EXPR_TYPE_GREATER_EQUAL:    // expr expr
+	case EXPR_TYPE_EQUAL:		    // expr expr
+	case EXPR_TYPE_NOT_EQUAL:		// expr expr
+	case EXPR_TYPE_BIT_AND:			// expr expr
+	case EXPR_TYPE_BIT_XOR:			// expr expr
+	case EXPR_TYPE_BIT_OR:			// expr expr
+	case EXPR_TYPE_AND:				// expr expr
+	case EXPR_TYPE_OR:				// expr expr
+	case EXPR_TYPE_ASSIGN:      // expr expr
+	case EXPR_TYPE_ASSIGN_STRUCT:    // expr expr2
+	case EXPR_TYPE_ADD_ASSIGN:	    // expr expr
+	case EXPR_TYPE_SUBTRACT_ASSIGN:	// expr expr
+	case EXPR_TYPE_MULTIPLE_ASSIGN:	// expr expr
+	case EXPR_TYPE_DIVIDE_ASSIGN:	// expr expr
+	case EXPR_TYPE_REMAINDER_ASSIGN:	// expr expr
+	case EXPR_TYPE_LEFT_SHIFT_ASSIGN:	// expr expr
+	case EXPR_TYPE_RIGHT_SHIFT_ASSIGN:	// expr expr
+	case EXPR_TYPE_BIT_AND_ASSIGN:		// expr expr
+	case EXPR_TYPE_BIT_XOR_ASSIGN:		// expr expr
+	case EXPR_TYPE_BIT_OR_ASSIGN:	// expr expr
+	{
+		if (checkExprNodeHasTypename(exprGetFirstNode(pRoot)))
+			return true;
+		if (checkExprNodeHasTypename(exprGetSecondNode(pRoot)))
+			return true;
+		break;
+	}
+	case EXPR_TYPE_TERNARY:			// expr expr expr
+	{
+		if (checkExprNodeHasTypename(exprGetFirstNode(pRoot)))
+			return true;
+		if (checkExprNodeHasTypename(exprGetSecondNode(pRoot)))
+			return true;
+		if (checkExprNodeHasTypename(exprGetThirdNode(pRoot)))
+			return true;
+		break;
+	}
+	case EXPR_TYPE_REF_ELEMENT:	// expr scope (?['~'] token | 'operator' operator)
+	case EXPR_TYPE_PTR_ELEMENT:	// expr scope (?['~'] token | 'operator' operator)
+		if (checkExprNodeHasTypename(exprGetFirstNode(pRoot)))
+			return true;
+		break;
+	case EXPR_TYPE_FUNC_CALL:		// expr *[expr, '!,']
+	{
+		SourceTreeNode* pFuncExpr = exprGetFirstNode(pRoot);
+		if (checkExprNodeHasTypename(pFuncExpr))
+			return true;
+		SourceTreeVector param_exprs = exprGetExprList(pRoot);
+		for (size_t i = 0; i < param_exprs.size(); i++)
+		{
+			if (checkExprNodeHasTypename(param_exprs[i]))
+				return true;
+		}
+		break;
+	}
+	case EXPR_TYPE_OPERATOR_CALL:    // scope operator expr2
+	{
+		if (checkScopeNodeHasTypename(exprGetFirstNode(pRoot)))
+			return true;
+		if (checkExpr2NodeHasTypename(exprGetThirdNode(pRoot)))
+			return true;
+		break;
+	}
+	case EXPR_TYPE_DELETE:		// scope ?[] expr
+	{
+		if (checkScopeNodeHasTypename(exprGetFirstNode(pRoot)))
+			return true;
+		if (checkExprNodeHasTypename(exprGetThirdNode(pRoot)))
+			return true;
+		break;
+	}
+	case EXPR_TYPE_SIZEOF:			// (extended_type_var | func_type | expr)
+	{
+		int nType;
+		SourceTreeNode* pChild;
+		exprSizeOfGetInfo(pRoot, nType, pChild);
+		if (nType == 0)
+			return checkExtendedTypeVarNodeHasTypename(pChild);
+		else if (nType == 1)
+			return checkFuncTypeNodeHasTypename(pChild);
+		return checkExprNodeHasTypename(pChild);
+	}
+	case EXPR_TYPE_NEW_C:	    	// scope ?( extended_type_var )
+		if (checkScopeNodeHasTypename(exprGetFirstNode(pRoot)))
+			return true;
+		return checkExtendedTypeVarNodeHasTypename(exprGetSecondNode(pRoot)->pChild);
+
+	case EXPR_TYPE_NEW_OBJECT:       // scope user_def_type expr2
+		if (checkScopeNodeHasTypename(exprGetFirstNode(pRoot)))
+			return true;
+		if (checkUserDefTypeNodeHasTypename(exprGetSecondNode(pRoot)))
+			return true;
+		return checkExpr2NodeHasTypename(exprGetSecondNode(pRoot)->pChild);
+
+	case EXPR_TYPE_NEW_ADV:          // scope expr ?[ user_def_type ?[ expr2 ] ] 
+	{
+		if (checkScopeNodeHasTypename(exprGetFirstNode(pRoot)))
+			return true;
+		if (checkExprNodeHasTypename(exprGetSecondNode(pRoot)))
+			return true;
+		SourceTreeNode* pUserDefType, *pExpr2;
+		exprNewAdvGetParams(pRoot, pUserDefType, pExpr2);
+		if (pUserDefType && checkUserDefTypeNodeHasTypename(pUserDefType))
+			return true;
+		if (pExpr2 && checkExpr2NodeHasTypename(pExpr2))
+			return true;
+		break;
+	}
+	case EXPR_TYPE_TYPE_CONSTRUCT:       // type, expr2
+		if (checkTypeNodeHasTypename(exprGetFirstNode(pRoot)))
+			return true;
+		if (checkExpr2NodeHasTypename(exprGetSecondNode(pRoot)))
+			return true;
+		break;
+	case EXPR_TYPE_PARENTHESIS:		    // expr2
+		if (checkExpr2NodeHasTypename(exprGetFirstNode(pRoot)))
+			return true;
+		break;
+	case EXPR_TYPE_BUILTIN_TYPE_FUNC:    // builtin_type_funcs, type
+		if (checkTypeNodeHasTypename(exprGetSecondNode(pRoot)))
+			return true;
+		break;
+	case EXPR_TYPE_BUILTIN_TYPE_FUNC2:   // builtin_type_funcs2, type, type
+		if (checkTypeNodeHasTypename(exprGetSecondNode(pRoot)))
+			return true;
+		if (checkTypeNodeHasTypename(exprGetThirdNode(pRoot)))
+			return true;
+		break;
+	case EXPR_TYPE_TYPE_CAST:		// extended_or_func_type expr
+	case EXPR_TYPE_CONST_CAST:           // extended_or_func_type, expr
+	case EXPR_TYPE_STATIC_CAST:     // extended_or_func_type, expr
+	case EXPR_TYPE_DYNAMIC_CAST:         // extended_or_func_type, expr
+	case EXPR_TYPE_REINTERPRET_CAST:     // extended_or_func_type, expr
+		if (checkExtendedOrFuncTypeNodeHasTypename(exprGetFirstNode(pRoot)))
+			return true;
+		if (checkExprNodeHasTypename(exprGetSecondNode(pRoot)))
+			return true;
+		break;
+	case EXPR_TYPE_TOKEN_WITH_NAMESPACE:
+	{
+		if (checkTokenWithNamespaceHasTypename(tokenWithNamespaceGetInfo(exprGetSecondNode(pRoot))))
+			return true;
+		/*if (twn.getDepth() == 1 && isConstValue(twn.getLastToken()))
+			continue;
+		SymbolDefObject* pObj = findSymbolEx(twn);
+		if (!pObj)
+		{
+	        TRACE2("CScope::%s, twn %s not found\n", __FUNCTION__, twn.toString().c_str());
+			return false;
+		}
+		TRACE2("CScope::%s, expr %s is defined as %d\n", __FUNCTION__, displaySourceTreeExpr(pRoot).c_str(), pObj->type);
+		if (pObj->type == GO_TYPE_VAR_DEF)
+		{
+			CVarDef* pVarDef = pObj->getVarDef();
+			CScope* pParent = pVarDef->getParent();
+			while (pParent->getGoType() != GO_TYPE_TEMPLATE)
+				pParent = pParent->getParent();
+			CTemplate* pParentTemplate = (CTemplate*)pParent;
+			TRACE2("CScope::%s, var %s is defined under a %s template%d\n", __FUNCTION__, pVarDef->getName().c_str(), pParentTemplate->getTemplateRoleString().c_str());
+			if (!pParentTemplate->isInstancedTemplate())
+				return true;
+		}*/
+		break;
+	}
+	default:
+		MY_ASSERT(false);
+	}
+	return false;
+}
+
+bool CScope::checkExpr2NodeHasTypename(const SourceTreeNode* pRoot)
+{
+	SourceTreeVector v = expr2GetExprs(pRoot);
+	for (unsigned i = 0; i < v.size(); i++)
+	{
+		if (checkExprNodeHasTypename(v[i]))
+			return true;
+	}
+
+	return false;
+}
+
+bool CScope::checkTokenWithNamespaceHasTypename(const TokenWithNamespace& twn)
+{
+	SymbolDefObject* pDefObj = findSymbol(twn.getToken(0), FIND_SYMBOL_SCOPE_PARENT);
+	if (pDefObj)
+	{
+		if (pDefObj->type == GO_TYPE_TYPEDEF)
+		{
+			if (pDefObj->getTypeDef()->hasTypename())
+				return true;
+		}
+		else if (pDefObj->children.size() == 1 && pDefObj->children[0]->getParent()->getGoType() == GO_TYPE_TEMPLATE)
+		{
+			CTemplate* pTemplate = (CTemplate*)pDefObj->children[0]->getParent();
+			if (pTemplate->isRootTemplate() || pTemplate->isSpecializedTemplate())
+			{
+				for (unsigned i = 0; i < pTemplate->m_typeParams.size(); i++)
+				{
+					if (pTemplate->m_typeParams[i].name == twn.getToken(0))
+						return true;
+				}
+			}
+		}
+	}
+	for (unsigned i = 0; i < twn.getDepth(); i++)
+	{
+		if (!twn.scopeHasTemplate(i))
+			continue;
+		if (checkTemplateParamHasTypename(twn, i))
+			return true;
+	}
+	return false;
+}
+
+bool CScope::checkExtendedOrFuncTypeNodeHasTypename(const SourceTreeNode* pRoot)
+{
+	bool bExtendedType;
+	SourceTreeNode* pChild;
+	extendedOrFuncTypeGetInfo(pRoot, bExtendedType, pChild);
+
+	if (bExtendedType)
+		return checkExtendedTypeNodeHasTypename(pChild);
+	return checkFuncTypeNodeHasTypename(pChild);
+}
+
+bool CScope::checkUserDefTypeNodeHasTypename(const SourceTreeNode* pRoot)
+{
+	return checkTokenWithNamespaceHasTypename(userDefTypeGetInfo(pRoot));
+}
+
+bool CScope::checkScopeNodeHasTypename(const SourceTreeNode* pRoot)
+{
+	return checkTokenWithNamespaceHasTypename(scopeGetInfo(pRoot));
+}
+
+bool CScope::checkTypeNodeHasTypename(const SourceTreeNode* pRoot)
+{
+	switch (typeGetType(pRoot))
+	{
+	case BASICTYPE_TYPE_BASIC:
+		return false;
+	case BASICTYPE_TYPE_USER_DEF:
+	{
+		bool bHasTypename;
+		SourceTreeNode* pUserDefNode;
+		typeUserDefinedGetInfo(pRoot, bHasTypename, pUserDefNode);
+		return checkUserDefTypeNodeHasTypename(pUserDefNode);
+	}
+	case BASICTYPE_TYPE_TYPEOF:
+		return checkExprNodeHasTypename(typeTypeOfGetInfo(pRoot));
+
+	case BASICTYPE_TYPE_DATA_MEMBER_POINTER:
+	{
+		SourceTreeNode* pExtendedTypeNode;
+		TokenWithNamespace twn;
+		typeDmpGetInfo(pRoot, pExtendedTypeNode, twn);
+		if (checkExtendedTypeNodeHasTypename(pExtendedTypeNode))
+			return true;
+		return checkTokenWithNamespaceHasTypename(twn);
+	}
+	default:
+		MY_ASSERT(false);
+	}
+	return false;
+}
+
+bool CScope::checkExtendedTypeNodeHasTypename(const SourceTreeNode* pRoot)
+{
+	return checkTypeNodeHasTypename(extendedTypeGetTypeNode(pRoot));
+}
+
+bool CScope::checkExtendedTypeVarNodeHasTypename(const SourceTreeNode* pRoot)
+{
+	SourceTreeNode* pExtendedTypeNode;
+	int depth;
+	extendedTypeVarGetInfo(pRoot, pExtendedTypeNode, depth);
+	if (checkExtendedTypeNodeHasTypename(pExtendedTypeNode))
+		return true;
+	SourceTreeVector params = extendedTypeVarGetParams(pRoot);
+	for (unsigned i = 0; i < params.size(); i++)
+	{
+		if (params[i] && checkExprNodeHasTypename(params[i]))
+			return true;
+	}
+	return false;
+}
+
+bool CScope::checkFuncTypeNodeHasTypename(const SourceTreeNode* pRoot)
+{
+	MY_ASSERT(false);
+
+	SourceTreeNode* pReturnExtendedType, *pScope, *pFuncParamsNode;
+	StringVector mod_strings, mod2_strings; 
+	int nDepth;
+	std::string name;
+	funcTypeGetInfo(pRoot, pReturnExtendedType, mod_strings, pScope, nDepth, name, pFuncParamsNode, mod2_strings);
+
+	return false;
 }
 
 bool CScope::checkTemplateParamHasTypename(const TokenWithNamespace& twn, int idx)
 {
 	TRACE2("CScope::%s, twn=%s, depth=%d\n", __FUNCTION__, twn.toString().c_str(), idx);
 	bool bHasTypename = false;
-	for (int j = 0; j < twn.getTemplateParamCount(idx); j++)
+	for (unsigned j = 0; j < twn.getTemplateParamCount(idx); j++)
 	{
 		SourceTreeNode* pNode;
 		std::string s;
@@ -2661,31 +3400,20 @@ bool CScope::checkTemplateParamHasTypename(const TokenWithNamespace& twn, int id
 		{
 		case TEMPLATE_PARAM_TYPE_DATA:
 		{
-			TypeDefPointer pTypeDef = getTypeDefByExtendedTypeVarNode(pNode);
-			TRACE2("CScope::%s, type %s is defined as %d\n", __FUNCTION__, displaySourceTreeExtendedTypeVar(pNode).c_str(), (pTypeDef ? pTypeDef->getType() : -1));
-			if (!pTypeDef || pTypeDef->getType() == SEMANTIC_TYPE_TYPENAME || pTypeDef->getType() == SEMANTIC_TYPE_TEMPLATE)
+			if (checkExtendedTypeVarNodeHasTypename(pNode))
 				return true;
+			//TypeDefPointer pTypeDef = getTypeDefByExtendedTypeVarNode(pNode);
+			//TRACE2("CScope::%s, type %s is defined as %d\n", __FUNCTION__, displaySourceTreeExtendedTypeVar(pNode).c_str(), (pTypeDef ? pTypeDef->getType() : -1));
+			//if (!pTypeDef || pTypeDef->getType() == SEMANTIC_TYPE_TYPENAME || pTypeDef->getType() == SEMANTIC_TYPE_TEMPLATE)
+			//	return true;
 			break;
 		}
 		case TEMPLATE_PARAM_TYPE_FUNC:
 			MY_ASSERT(false);
 		case TEMPLATE_PARAM_TYPE_VALUE:
 		{
-			if (exprGetType(pNode) == EXPR_TYPE_TOKEN_WITH_NAMESPACE)
-			{
-				TokenWithNamespace twn = tokenWithNamespaceGetInfo(exprGetSecondNode(pNode));
-				if (twn.getDepth() == 1 && isConstValue(twn.getLastToken()))
-					continue;
-				SymbolDefObject* pObj = findSymbolEx(twn);
-				if (!pObj)
-				{
-	                TRACE2("CScope::%s, twn %s not found\n", __FUNCTION__, twn.toString().c_str());
-				    return false;
-				}
-				TRACE2("CScope::%s, expr %s is defined as %d\n", __FUNCTION__, displaySourceTreeExpr(pNode).c_str(), pObj->type);
-				if (pObj->type == GO_TYPE_VAR_DEF)
-					return !pObj->getVarDef()->hasValue();
-			}
+			if (checkExprNodeHasTypename(pNode))
+				return true;
 			break;
 		}
 		default:
@@ -2696,125 +3424,144 @@ bool CScope::checkTemplateParamHasTypename(const TokenWithNamespace& twn, int id
 	return false;
 }
 
-// it doesn't need to check recursively, because all sub nodes have been called to this func just now
-bool CScope::onGrammarCheckFunc(int mode, const SourceTreeNode* pRoot, const GrammarTempDefMap& tempDefMap)
+CGrammarObject* CScope::findRoughSymbol(const TokenWithNamespace& twn)
 {
-	if (mode == 0) // token
+	CScope* pScope = getRealScope();
+	if (twn.hasRootSign())
+		pScope = &g_global_namespace;
+
+	ScopeVector backup_list;
+	for (unsigned i = 0; i < twn.getDepth(); i++)
 	{
-		TokenWithNamespace twn = tokenWithNamespaceGetInfo(pRoot);
-		TRACE2("CScope::check token, twn=%s, ", twn.toString().c_str());
-		if (!twn.hasRootSign() && twn.getDepth() == 1)
+		SymbolDefObject* pDefObj = pScope->findSymbol(twn.getToken(i), (i == 0 ? FIND_SYMBOL_SCOPE_PARENT : FIND_SYMBOL_SCOPE_SCOPE),
+			(twn.scopeHasTemplate(i) ? FIND_SYMBOL_MODE_TEMPLATE : FIND_SYMBOL_MODE_ANY));
+		if (!pDefObj)
 		{
-			std::string s = twn.getLastToken();
-			if (s == "true" || s == "false" || s == "null" || s == "__null")
-				return true;
-			if (tempDefMap.find(s) != tempDefMap.end())
-				return tempDefMap.at(twn.getLastToken()) == 2;
+			if (backup_list.empty())
+			{
+				TRACE2("not found at %d, return\n", i);
+				return NULL;
+			}
+			TRACE2("not found at %d, switch to alternative, remain=%d\n", i, backup_list.size());
+			pScope = backup_list.back();
+			backup_list.pop_back();
+			i--;
+			continue;
 		}
-
-        // in most cases, it brings many issues when we get down to the class type, just get down to the template is enough
-        if (twn.scopeHasTemplate(twn.getDepth() - 1))
-            twn.clearTemplateParams(twn.getDepth() - 1);
-
-        // it's possible that the second to last scope is a template so we have no way to figure out what the last token is.
-        // so we find symbolEx until the second to last scope. If it's a template, we simply return true.
-		if (twn.getDepth() == 1)
+		backup_list.clear();
+		TRACE2("level %d found, go_type=%d, ", i, pDefObj->type);
+		switch (pDefObj->type)
 		{
-			SymbolDefObject* pSymbolObj = findSymbolEx(twn);
-			if (!pSymbolObj || pSymbolObj->type == GO_TYPE_NAMESPACE || pSymbolObj->type == GO_TYPE_TYPEDEF || pSymbolObj->type == GO_TYPE_TEMPLATE)
-				return false;
-			return true;
-		}
-
-		//MY_ASSERT(!twn.scopeHasTemplate(twn.getDepth() - 1));
-		//std::string lastToken = twn.getLastToken();
-		//twn.resize(twn.getDepth() - 1);
-
-		SymbolDefObject* pSymbolObj = findSymbolEx(twn);
-		TRACE2("CScope::check token, get symbol type %d\n", (pSymbolObj ? pSymbolObj->type : -1));
-		if (!pSymbolObj)
-			return true;
-
-		if (pSymbolObj)
+		case GO_TYPE_TYPEDEF:
 		{
-		    // constructor is also a token
-			if (pSymbolObj->type == GO_TYPE_TEMPLATE || pSymbolObj->type == GO_TYPE_TYPEDEF || pSymbolObj->type == GO_TYPE_CLASS)
-				return false;
-			return true;
+			TypeDefPointer pTypeDef = pDefObj->getTypeDef();
+			if (i == twn.getDepth() - 1)
+			{
+				MY_ASSERT(pTypeDef->getGoType() != GO_TYPE_USING_OBJECTS);
+				return pTypeDef.get();
+			}
+			while (!pTypeDef->isBaseType())
+			{
+				MY_ASSERT(!pTypeDef->getClassDef() && pTypeDef->getDepth() == 0);
+				pTypeDef = pTypeDef->getBaseType();
+			}
+			MY_ASSERT(pTypeDef->getClassDef());
+			pScope = pTypeDef->getClassDef();
+			if (pScope->hasTypename())
+				pScope = pScope->getParent()->getParent(); // go to the class's specialized template
+			break;
 		}
+		case GO_TYPE_FUNC:
+		case GO_TYPE_USING_OBJECTS:
+		case GO_TYPE_CLASS:
+		case GO_TYPE_ENUM:
+			MY_ASSERT(false);
+			break;
 
-		//if (pSymbolObj->type == GO_TYPE_TEMPLATE)
-		//	return twn.scopeHasTemplate(twn.getDepth() - 1);
+		case GO_TYPE_FUNC_DECL:
+		{
+			MY_ASSERT(i == twn.getDepth() - 1);
+		    CFuncDeclare* pFuncDecl = pDefObj->getFuncDeclareAt(0);
+			MY_ASSERT(pFuncDecl->getGoType() != GO_TYPE_USING_OBJECTS);
+			return pFuncDecl;
+		}
+		case GO_TYPE_VAR_DEF:
+		{
+			MY_ASSERT(i == twn.getDepth() - 1);
+		    CVarDef* pVarDef = pDefObj->getVarDef();
+			MY_ASSERT(pVarDef->getGoType() != GO_TYPE_USING_OBJECTS);
+			return pVarDef;
+		}
+		case GO_TYPE_NAMESPACE:
+			MY_ASSERT(i < twn.getDepth() - 1);
+			pScope = pDefObj->getNamespace();
+			continue;
 
-		return true; // tired of detail verification
+		case GO_TYPE_TEMPLATE:
+		{
+			CTemplate* pTemplate = pDefObj->getTemplateAt();
+			pScope = pTemplate;
+			// need to find the right specialized template if necessary. but to make it simple, we just find the template with the right number of parameters
+			for (unsigned j = 0; j < pTemplate->m_specializeDefList.size(); j++)
+			{
+				CTemplate* pTemplate2 = pTemplate->m_specializeDefList[j].getTemplateAt(0);
+				if (pTemplate2->m_specializedTypeParams.size() == twn.getTemplateParamCount(i))
+				{
+					backup_list.push_back(pScope);
+					pScope = pTemplate2;
+				}
+			}
+			if (i == twn.getDepth() - 1)
+			{
+				MY_ASSERT(pScope->getGoType() != GO_TYPE_USING_OBJECTS);
+				return pScope;
+			}
+			break;
+		}
+		default:
+			MY_ASSERT(false);
+		}
 	}
-	else // user def type
+	MY_ASSERT(false);
+	return NULL;
+}
+
+// return -1: not found, 0: token, 1: type
+int CScope::onGrammarCheckFunc(const TokenWithNamespace& twn, const GrammarTempDefMap& tempDefMap)
+{
+	TRACE2("CScope::%s, twn=%s, ", __FUNCTION__, twn.toString().c_str());
+	if (!twn.hasRootSign() && twn.getDepth() == 1)
 	{
-		TokenWithNamespace twn = userDefTypeGetInfo(pRoot);
-		TRACE2("CScope::check type, twn=%s, ", twn.toString().c_str());
-		if (!twn.hasRootSign() && twn.getDepth() == 1)
-		{
-			std::string s = twn.getLastToken();
-			if (s == "true" || s == "false" || s == "null" || s == "__null")
-				return false;
-			if (tempDefMap.find(twn.getLastToken()) != tempDefMap.end())
-				return tempDefMap.at(twn.getLastToken()) == 1;
-		}
-		// in most cases, it brings many issues when we get down to the class type, just get down to the template is enough
-		if (twn.scopeHasTemplate(twn.getDepth() - 1))
-		    twn.clearTemplateParams(twn.getDepth() - 1);
-		if (twn.getDepth() == 1)
-		{
-			if (twn.getLastToken() == "__is_pod")
-				return false;
-
-			SymbolDefObject* pSymbolObj = findSymbolEx(twn);
-			if (!pSymbolObj)
-			{
-				TRACE2("findSymbolEx %s not found\n", twn.toString().c_str());
-				return twn.scopeHasTemplate(0) ? true : false;
-			}
-			if (pSymbolObj->type == GO_TYPE_TYPEDEF)
-				return true; //!twn.scopeHasTemplate(twn.getDepth() - 1);
-			if (pSymbolObj->type == GO_TYPE_TEMPLATE)
-			{
-				//CTemplate* pTemplate = pSymbolObj->getTemplateAt(0);
-				//if (pTemplate->getTemplateType() == TEMPLATE_TYPE_CLASS)
-				//	return twn.scopeHasTemplate(twn.getDepth() - 1);
-				return true;
-			}
-			TRACE2("findSymbolEx %s bad type %d\n", twn.toString().c_str(), pSymbolObj->type);
-			return false;
-		}
-
-		//if (twn.scopeHasTemplate(twn.getDepth() - 1))
-		//	return true;
-
-		SymbolDefObject* pSymbolObj = findSymbolEx(twn);
-		if (pSymbolObj)
-		{
-			if (pSymbolObj->type == GO_TYPE_TEMPLATE || pSymbolObj->type == GO_TYPE_TYPEDEF || pSymbolObj->type == GO_TYPE_CLASS)
-				return true;
-			return false;
-		}
-
-		/*std::string lastToken = twn.getLastToken();
-		twn.resize(twn.getDepth() - 1);
-
-		SymbolDefObject* pSymbolObj = findSymbolEx(twn);
-		if (!pSymbolObj)
-			return false;
-
-		if (pSymbolObj->type == GO_TYPE_TEMPLATE)
-			return true; //twn.scopeHasTemplate(twn.getDepth() - 1);
-
-		return true; // tired of detail verification*/
-		TRACE("::check type not found, return true\n");
-		return true;
+		std::string s = twn.getLastToken();
+		if (s == "true" || s == "false" || s == "null" || s == "__null")
+			return 0;
+		if (tempDefMap.find(s) != tempDefMap.end())
+			return tempDefMap.at(twn.getLastToken()) == 2 ? 0 : 1; // 1: type, 2: var
 	}
+
+	CGrammarObject* pGO = findRoughSymbol(twn);
+	if (!pGO)
+	{
+		TRACE2("%s, return not found\n", __FUNCTION__);
+		return -1;
+	}
+	TRACE2("return go_type=%d\n", pGO->getGoType());
+
+	if (pGO->getGoType() == GO_TYPE_TEMPLATE)
+	{
+		TemplateType tt = ((CTemplate*)pGO)->getTemplateType();
+		TRACE2("template type=%d\n", tt);
+		return (tt == TEMPLATE_TYPE_CLASS || tt == TEMPLATE_TYPE_FRIEND_CLASS) ? 1 : 0;
+	}
+
+	if (pGO->getGoType() == GO_TYPE_TYPEDEF || pGO->getGoType() == GO_TYPE_CLASS)
+		return 1;
+
+	if (pGO->getGoType() == GO_TYPE_VAR_DEF || pGO->getGoType() == GO_TYPE_FUNC || pGO->getGoType() == GO_TYPE_FUNC_DECL)
+		return 0;
 
 	MY_ASSERT(false);
-	return false;
+	return 0;
 }
 
 bool CScope::onGrammarCallback(int mode, std::string& s)
@@ -2973,7 +3720,7 @@ TypeDefPointer CScope::getTypeDefByTypeNode(const SourceTreeNode* pRoot, bool bD
 		break;
 	}
 	case BASICTYPE_TYPE_TYPEOF:
-		pTypeDef = TypeDefPointer(new CTypeDef(NULL, "", tokenWithNamespaceGetInfo(typeTypeOfGetInfo(pRoot))));
+		pTypeDef = TypeDefPointer(new CTypeDef(NULL, "", new CExpr(this, typeTypeOfGetInfo(pRoot))));
 		break;
 
 	case BASICTYPE_TYPE_DATA_MEMBER_POINTER:
@@ -2983,7 +3730,8 @@ TypeDefPointer CScope::getTypeDefByTypeNode(const SourceTreeNode* pRoot, bool bD
 		typeDmpGetInfo(pRoot, pExtendedTypeNode, twn);
 
 		TypeDefPointer pExtendedTypeDef = getTypeDefByExtendedTypeNode(pExtendedTypeNode);
-		MY_ASSERT(pExtendedTypeDef);
+		if (!pExtendedTypeDef)
+			break;
 
 		TypeDefPointer pDataScope;
 		SymbolDefObject* pSymbolObj = findSymbolEx(twn);
@@ -2992,7 +3740,7 @@ TypeDefPointer CScope::getTypeDefByTypeNode(const SourceTreeNode* pRoot, bool bD
 		if (pSymbolObj->type == GO_TYPE_TYPEDEF)
 		{
 			pDataScope = pSymbolObj->getTypeDef();
-			MY_ASSERT(pDataScope->getType() == SEMANTIC_TYPE_CLASS || pDataScope->getType() == SEMANTIC_TYPE_STRUCT);
+			MY_ASSERT(pDataScope->getType() == SEMANTIC_TYPE_CLASS || pDataScope->getType() == SEMANTIC_TYPE_STRUCT || pDataScope->getType() == SEMANTIC_TYPE_TYPENAME);
 		}
 		else
 			throw(twn.toString() + " is not a class type");
@@ -3056,7 +3804,7 @@ TypeDefPointer CScope::getTypeDefByExtendedTypeNode(const SourceTreeNode* pRoot,
 	//	return pTypeDef;
 
 	TypeDefPointer pTypeDef2 = TypeDefPointer(new CTypeDef(NULL, "", pTypeDef, extendedTypeGetDepth(pRoot)));
-	pTypeDef2->setReference(extendedTypeIsReference(pRoot));
+	pTypeDef2->setReference(extendedTypeGetReferenceCount(pRoot));
 	pTypeDef2->setModStrings(extendedTypeGetModStrings(pRoot));
 	return pTypeDef2;
 }
@@ -3094,10 +3842,8 @@ TypeDefPointer CScope::getTypeDefByDeclVarNode(TypeDefPointer pTypeDef, const So
 	MY_ASSERT(pTypeDef);
 	TypeDefPointer pTypeDef2 = TypeDefPointer(new CTypeDef(NULL, "", pTypeDef, declVarGetDepth(pDeclVar)));
 
-	if (declVarIsReference(pDeclVar))
-		pTypeDef2->setReference(true);
-	if (declVarIsConst(pDeclVar))
-		pTypeDef2->setConst(true);
+	pTypeDef2->setReference(declVarGetReferenceCount(pDeclVar));
+	pTypeDef2->setConst(declVarIsConst(pDeclVar));
 
 	return pTypeDef2;
 }
@@ -3412,11 +4158,13 @@ std::string CExpr::getDebugName()
 void CExpr::analyze(const SourceTreeNode* pRoot)
 {
 	m_expr_type = exprGetType(pRoot);
+
+	std::string op_str;
 	switch (m_expr_type)
 	{
 	case EXPR_TYPE_CONST_VALUE:			// const_value
 		m_value = exprConstGetValue(pRoot);
-		if (m_value.c_str()[0] == '"')
+		if (CLexer::isString(m_value))
 		{
 			m_return_type = g_type_def_const_char_ptr;
 			m_return_depth = 1;
@@ -3504,21 +4252,32 @@ void CExpr::analyze(const SourceTreeNode* pRoot)
 	{
 		SourceTreeNode* pFuncExpr = exprGetFirstNode(pRoot);
 		SourceTreeVector param_exprs = exprGetExprList(pRoot);
-		std::string func_call_str = displaySourceTreeExpr(pFuncExpr);
+		std::string func_call_str = displaySourceTreeExpr(pFuncExpr) + "(";
 		CExpr* pExpr = new CExpr(this, pFuncExpr);
 		addChild(pExpr);
 		TRACE2("func call: %s, ", displaySourceTreeExpr(pRoot).c_str());
 		std::vector<TypeDefPointer> typeList;
 		for (size_t i = 0; i < param_exprs.size(); i++)
 		{
+			if (i > 0)
+				func_call_str += ", ";
 			SourceTreeNode*& func_param = param_exprs[i];
 			//bool bFlow2;
 			CExpr* pExpr = new CExpr(this, func_param);
 			addChild(pExpr);
 			m_bFlow |= pExpr->isFlow();
 
-			typeList.push_back(createTypeByDepth(pExpr->getReturnType(), pExpr->getReturnDepth()));
+			TypeDefPointer pTypeDef2 = createTypeByDepth(pExpr->getReturnType(), pExpr->getReturnDepth());
+			if (pExpr->getReturnDepth() == 0 && pExpr->getReturnType()->getType() == SEMANTIC_TYPE_BASIC)
+			{
+				float f;
+				if (pExpr->calculateNumValue(f))
+					pTypeDef2->setHasNumValue((int)f);
+			}
+			typeList.push_back(pTypeDef2);
+			func_call_str += pExpr->toString();
 		}
+		func_call_str += ")";
 
 		TypeDefPointer funcType = pExpr->getReturnType();
 		if (funcType)
@@ -3526,23 +4285,18 @@ void CExpr::analyze(const SourceTreeNode* pRoot)
 			// a call in a template
 			if (funcType->getType() != SEMANTIC_TYPE_FUNC)
 			{
-				if (funcType->getType() != SEMANTIC_TYPE_BASIC)
-				{
+				//if (funcType->getType() != SEMANTIC_TYPE_BASIC)
+				//{
 					m_return_type = funcType;
 					m_return_depth = m_return_type->getDepth();
 					MY_ASSERT(m_return_depth == 0);
 					break;
-				}
-				//throw(func_call_str + " is not of func type, buf of a " + ltoa(funcType->getType()));
+				//}
 			}
-			int nDepth = pExpr->getReturnDepth();
-			while (!funcType->isBaseType())
-			{
-				nDepth += funcType->getBaseType()->getDepth();
-				funcType = funcType->getBaseType();
-			}
-			if (nDepth + funcType->getDepth() == 0)
-				throw(func_call_str + " is not a func ptr, but a " + pExpr->getReturnType()->toFullString() + ":" + ltoa(pExpr->getReturnDepth()));
+			int nDepth = pExpr->getReturnType()->getRootDepth();
+			funcType = funcType->getRootBaseType();
+			if (nDepth > 1)
+				throw(func_call_str + " is not a func ptr, but a " + pExpr->getReturnType()->toFullString() + ":" + ltoa(nDepth));
 
 			if (funcType->checkCallParams(typeList, funcType->isConst()) < 0)
 				throw("parameters in " + func_call_str + "() don't match its definition");
@@ -3557,7 +4311,7 @@ void CExpr::analyze(const SourceTreeNode* pRoot)
 				if (matched_v.empty())
 				{
 					std::string s = pExpr->toString();
-					throw("Cannot find matched func definition for " + s);
+					throw("Cannot find matched func definition for " + func_call_str);
 				}
 				else if (matched_v.size() == 1)
 				{
@@ -3569,9 +4323,15 @@ void CExpr::analyze(const SourceTreeNode* pRoot)
 					}
 					else if (pMatchedGO->getGoType() == GO_TYPE_TEMPLATE)
 					{
-						TemplateResolvedDefParamVector typeDefMap;
-						((CTemplate*)pMatchedGO)->funcCheckFitForTypeList(typeList, typeDefMap);
-						funcType = ((CTemplate*)pMatchedGO)->funcGetInstance(typeList, typeDefMap);
+						CTemplate* pTemplate = (CTemplate*)pMatchedGO;
+						TemplateResolvedDefParamVector typeDefMap = pTemplate->prepareResolvedDefParams();
+						int n = 0;
+						if (!pTemplate->isInstancedTemplate())
+							n = pTemplate->funcRootCheckFitForTypeList(typeList, typeDefMap);
+						else
+							n = pTemplate->funcInstancedCheckFitForTypeList(typeList, typeDefMap);
+						MY_ASSERT(n >= 0);
+						funcType = pTemplate->funcGetInstance(typeList, typeDefMap);
 					}
 					else
 						MY_ASSERT(false);
@@ -3613,13 +4373,10 @@ void CExpr::analyze(const SourceTreeNode* pRoot)
 	{
 		SourceTreeNode* pScopeNode = exprGetFirstNode(pRoot);
 		std::string op_str = "operator " + operatorGetString(exprGetSecondNode(pRoot));
-		SourceTreeNode* pParamNode = exprGetOptionalThirdNode(pRoot);
-		if (pParamNode)
-		{
-			CExpr* pExpr = new CExpr(this, pParamNode);
-			addChild(pExpr);
-			m_bFlow |= pExpr->isFlow();
-		}
+		SourceTreeNode* pParamNode = exprGetThirdNode(pRoot);
+		CExpr* pExpr2 = new CExpr2(this, pParamNode);
+		addChild(pExpr2);
+		m_bFlow |= pExpr2->isFlow();
 		TypeDefPointer pTypeDef;
 		m_token_with_namespace.copyFrom(scopeGetInfo(pScopeNode));
 		if (!m_token_with_namespace.empty())
@@ -3641,8 +4398,8 @@ void CExpr::analyze(const SourceTreeNode* pRoot)
 
 			if (pTypeDef)
 			{
-				MY_ASSERT(!pTypeDef->isBaseType() && pTypeDef->getBaseType()->isBaseType() && pTypeDef->getBaseType()->getClassDef());
-				CClassDef* pClassDef = pTypeDef->getBaseType()->getClassDef();
+				MY_ASSERT(pTypeDef->getRootDepth() == 0);
+				CClassDef* pClassDef = pTypeDef->getRootBaseType()->getClassDef();
 				pSymbolObj = pClassDef->findSymbol(op_str, FIND_SYMBOL_SCOPE_SCOPE);
 			}
 			if (!pSymbolObj)
@@ -3906,7 +4663,7 @@ void CExpr::analyze(const SourceTreeNode* pRoot)
 		m_bFlow |= pExpr->isFlow();
 		break;
 	}
-	case EXPR_TYPE_REF_ELEMENT:	 // expr scope ['~'] token ['(' expr2 ')']
+	case EXPR_TYPE_REF_ELEMENT:	 // expr scope (?['~'] token | 'operator' operator)
 	case EXPR_TYPE_PTR_ELEMENT:
 	{
 		SourceTreeNode* pExprNode, *pScopeNode, *pExpr2Node = NULL;
@@ -3920,38 +4677,20 @@ void CExpr::analyze(const SourceTreeNode* pRoot)
 		addChild(pExpr);
 		m_bFlow |= pExpr->isFlow();
 
-		/*if (pExpr2Node)
-		{
-			m_bFlag = true;
-
-			SourceTreeVector exprList = expr2GetExprs(pExpr2Node);
-			for (int i = 0; i < exprList.size(); i++)
-			{
-				CExpr* pExpr = new CExpr(this, exprList[i]);
-				addChild(pExpr);
-				m_bFlow |= pExpr->isFlow();
-			}
-		}*/
-
+		int nDepthToRoot = pExpr->getReturnDepth();
 		TypeDefPointer pTypeDef = pExpr->getReturnType();
 		std::string s2 = pTypeDef->toFullString();
 		SemanticDataType dataType = pTypeDef->getType();
-		/*if (dataType != SEMANTIC_TYPE_STRUCT && dataType != SEMANTIC_TYPE_UNION && dataType != SEMANTIC_TYPE_CLASS)
-		{
-			std::string s = displaySourceTreeExpr(pRoot);
-			throw("type " + pExpr->toString() + " is not a struct or union type, but a " + getSemanticTypeName(dataType));
-		}*/
 
-		int nDepthToRoot = pExpr->getReturnDepth();
-		pTypeDef = pTypeDef->getBaseType();
-		while (!pTypeDef->isBaseType())
+		if (!pTypeDef->isBaseType())
 		{
-			nDepthToRoot += pTypeDef->getDepth();
-			pTypeDef = pTypeDef->getBaseType();
+			nDepthToRoot += pTypeDef->getBaseType()->getRootDepth();
+			pTypeDef = pTypeDef->getRootBaseType();
 		}
-		if (nDepthToRoot == 0 && m_expr_type == EXPR_TYPE_PTR_ELEMENT && pTypeDef->getClassDef())
+		TRACE2("%s, expr_type=%d, nDepthToRoot=%d, baseType=%s\n", __FUNCTION__, m_expr_type, nDepthToRoot, pTypeDef->toFullString().c_str());
+		if (nDepthToRoot == 0 && m_expr_type == EXPR_TYPE_PTR_ELEMENT && pTypeDef->getBaseScope())
 		{
-			SymbolDefObject* pObj = pTypeDef->getClassDef()->findSymbol("operator ->", FIND_SYMBOL_SCOPE_LOCAL);
+			SymbolDefObject* pObj = pTypeDef->getBaseScope()->findSymbol("operator ->", FIND_SYMBOL_SCOPE_LOCAL);
 			if (pObj)
 			{
 				pTypeDef = pObj->getFuncDeclareAt(0)->getType()->getFuncReturnType();
@@ -3965,6 +4704,7 @@ void CExpr::analyze(const SourceTreeNode* pRoot)
 		if (nDepthToRoot != (m_expr_type == EXPR_TYPE_REF_ELEMENT ? 0 : 1))
 			throw(pExpr->toString() + " depth is " + ltoa(nDepthToRoot));
 
+		TRACE2("%s, dataType=%d\n", __FUNCTION__, dataType);
 		if (dataType == SEMANTIC_TYPE_BASIC)
 		{
 			//std::string s = pTypeDef->toFullString();
@@ -3977,11 +4717,12 @@ void CExpr::analyze(const SourceTreeNode* pRoot)
 		{
 			if (m_token_with_namespace.getLastToken().substr(0, 1) == "~") // call destructor
 			{
-				m_return_type = g_type_def_func_void;
+				m_return_type = g_type_def_void_func_ptr;
 				m_return_depth = m_return_type->getDepth();
 				break;
 			}
-			SymbolDefObject* pSymbolObj = pTypeDef->getClassDef()->findSymbol(m_token_with_namespace.getLastToken(), FIND_SYMBOL_SCOPE_SCOPE);
+			MY_ASSERT(pTypeDef->getBaseScope());
+			SymbolDefObject* pSymbolObj = pTypeDef->getBaseScope()->findSymbol(m_token_with_namespace.getLastToken(), FIND_SYMBOL_SCOPE_SCOPE);
 			if (!pSymbolObj)
 			{
 				std::string s = pTypeDef->toFullString();
@@ -4003,12 +4744,98 @@ void CExpr::analyze(const SourceTreeNode* pRoot)
 		//TRACE2("resolve REF/PTR, member=%s, type=%s\n", m_value.c_str(), typeDescBlock2String(m_type_desc_block).c_str());
 		break;
 	}
-	case EXPR_TYPE_MULTIPLE:			// expr expr
-	case EXPR_TYPE_DIVIDE:			// expr expr
-	case EXPR_TYPE_REMAINDER:		// expr expr
 	case EXPR_TYPE_ADD:				// expr expr
+		op_str = "+";
+	case EXPR_TYPE_SUBTRACT:		// expr expr
+		if (op_str.empty()) op_str = "-";
+	case EXPR_TYPE_MULTIPLE:		// expr expr
+		if (op_str.empty()) op_str = "*";
+	case EXPR_TYPE_DIVIDE:			// expr expr
+		if (op_str.empty()) op_str = "/";
+	case EXPR_TYPE_REMAINDER:		// expr expr
+		if (op_str.empty()) op_str = "%";
 	case EXPR_TYPE_LEFT_SHIFT:		// expr expr
+		if (op_str.empty()) op_str = "<<";
 	case EXPR_TYPE_RIGHT_SHIFT:		// expr expr
+		if (op_str.empty()) op_str = ">>";
+	{
+		CExpr* pExpr = new CExpr(this, exprGetFirstNode(pRoot));
+		addChild(pExpr);
+		m_bFlow = pExpr->isFlow();
+		CExpr* pExpr2 = new CExpr(this, exprGetSecondNode(pRoot));
+		addChild(pExpr2);
+		m_bFlow |= pExpr2->isFlow();
+		TypeDefPointer pTypeDef = pExpr->getReturnType();
+		TRACE2("%s, operator, left=%s, operator=%s, right=%s\n", __FUNCTION__, pTypeDef->toFullString().c_str(), op_str.c_str(), pExpr2->getReturnType()->toFullString().c_str());
+		if (pTypeDef->getRootBaseType()->getClassDef())
+		{
+			CClassDef* pClassDef = pTypeDef->getRootBaseType()->getClassDef();
+			std::vector<TypeDefPointer> typeList;
+			typeList.push_back(pExpr2->getReturnType());
+			std::string func_call_str = std::string("operator ") + op_str + pExpr2->getReturnType()->toString();
+			SymbolDefObject* pDefObj = pClassDef->findSymbol(std::string("operator ") + op_str, FIND_SYMBOL_SCOPE_SCOPE);
+			if (!pDefObj)
+				throw(std::string("class ") + pClassDef->getName() + " doesn't have operator " + op_str + " defined");
+			MY_ASSERT(pDefObj->type == GO_TYPE_FUNC_DECL);
+
+			int maxMatchScore = -1;
+			std::vector<CGrammarObject*> matched_v;
+			TypeDefPointer pFuncType;
+			checkBestMatchedFunc(pDefObj->children, typeList, pTypeDef->isConst(), maxMatchScore, matched_v);
+			if (matched_v.empty())
+			{
+				std::string s = pExpr->toString();
+				throw("Cannot find matched func definition for " + func_call_str);
+			}
+			else if (matched_v.size() == 1)
+			{
+				CGrammarObject* pMatchedGO = matched_v[0];
+				if (pMatchedGO->getGoType() == GO_TYPE_FUNC_DECL)
+				{
+					pFuncType = ((CFuncDeclare*)pMatchedGO)->getType();
+				}
+				else if (pMatchedGO->getGoType() == GO_TYPE_TEMPLATE)
+				{
+					CTemplate* pTemplate = (CTemplate*)pMatchedGO;
+					TemplateResolvedDefParamVector typeDefMap = pTemplate->prepareResolvedDefParams();
+					int n = 0;
+					if (!pTemplate->isInstancedTemplate())
+						n = pTemplate->funcRootCheckFitForTypeList(typeList, typeDefMap);
+					else
+						n = pTemplate->funcInstancedCheckFitForTypeList(typeList, typeDefMap);
+					MY_ASSERT(n >= 0);
+					pFuncType = pTemplate->funcGetInstance(typeList, typeDefMap);
+				}
+				else
+					MY_ASSERT(false);
+
+				m_return_type = pFuncType->getFuncReturnType();
+				m_return_depth = m_return_type ? m_return_type->getDepth() : 0;
+				if (pFuncType->isFuncFlow())
+					m_bFlow = true;
+				TRACE2("%s, %s resolve to %s\n", __FUNCTION__, func_call_str.c_str(), m_return_type->toFullString().c_str());
+			}
+			else
+			{
+				std::string err_s = "call of " + func_call_str + " at " + g_cur_file_stack.back() + ":" + ltoa(g_cur_line_no) + " is ambiguous. Choices are:\n";
+				for (unsigned j = 0; j < matched_v.size(); j++)
+					err_s += "   " + matched_v[j]->definedIn() + "\n";
+				throw(err_s);
+			}
+			break;
+		}
+		if (pExpr2->getReturnType()->getRootDepth() > 0)
+		{
+			m_return_type = g_type_def_int;
+			m_return_depth = 0;
+		}
+		else
+		{
+			m_return_type = pExpr->getReturnType();
+			m_return_depth = pExpr->getReturnDepth();
+		}
+		break;
+	}
 	case EXPR_TYPE_ASSIGN:			// expr expr
 	case EXPR_TYPE_ASSIGN_STRUCT:	// expr expr2
 	case EXPR_TYPE_ADD_ASSIGN:		// expr expr
@@ -4032,18 +4859,6 @@ void CExpr::analyze(const SourceTreeNode* pRoot)
 		m_bFlow |= pExpr->isFlow();
 		break;
 	}
-	case EXPR_TYPE_SUBTRACT:			// expr expr
-	{
-		CExpr* pExpr = new CExpr(this, exprGetFirstNode(pRoot));
-		addChild(pExpr);
-		m_bFlow = pExpr->isFlow();
-		pExpr = new CExpr(this, exprGetSecondNode(pRoot));
-		addChild(pExpr);
-		m_bFlow |= pExpr->isFlow();
-		m_return_type = g_type_def_int;
-		m_return_depth = 0;
-		break;
-	}
 	case EXPR_TYPE_LESS_THAN:		// expr expr
 	case EXPR_TYPE_LESS_EQUAL:		// expr expr
 	case EXPR_TYPE_GREATER_THAN:		// expr expr
@@ -4063,6 +4878,7 @@ void CExpr::analyze(const SourceTreeNode* pRoot)
 		addChild(pExpr);
 		m_bFlow |= pExpr->isFlow();
 		m_return_type = g_type_def_int;
+		m_return_depth = 0;
 		break;
 	}
 	case EXPR_TYPE_TERNARY:			// expr expr expr
@@ -4099,10 +4915,11 @@ void CExpr::analyze(const SourceTreeNode* pRoot)
 		m_return_depth = 0;
 		break;
 	}
-	case EXPR_TYPE_IS_BASE_OF:
+	case EXPR_TYPE_BUILTIN_TYPE_FUNC2:	   // func_type, type, type
 	{
-		m_pTypeDef = getTypeDefByTypeNode(exprGetFirstNode(pRoot));
-		m_pTypeDef2 = getTypeDefByTypeNode(exprGetSecondNode(pRoot));
+		m_value = exprBuiltinFunc2GetName(pRoot);
+		m_pTypeDef = getTypeDefByTypeNode(exprGetSecondNode(pRoot));
+		m_pTypeDef2 = getTypeDefByTypeNode(exprGetThirdNode(pRoot));
 		m_return_type = g_type_def_bool;
 		m_return_depth = 0;
 		break;
@@ -4142,29 +4959,29 @@ std::string CExpr::toString(int depth) // depth is not used
 
 	switch (m_expr_type)
 	{
-	case EXPR_TYPE_REF_ELEMENT:	// expr ['~'] token ['(' expr2 ')']
+	case EXPR_TYPE_REF_ELEMENT:	// expr ['~'] scope token
 	case EXPR_TYPE_PTR_ELEMENT:
 	{
 		ret_s += ((CExpr*)getChildAt(0))->toString();
 		ret_s += (m_expr_type == EXPR_TYPE_REF_ELEMENT ? "." : "->");
-		ret_s += m_value;
-		if (m_bFlag)
+		ret_s += m_token_with_namespace.toString();
+		/*if (m_bFlag)
 		{
 			ret_s += "(";
-			for (int i = 1; i < getChildrenCount(); i++)
+			for (unsigned i = 1; i < getChildrenCount(); i++)
 			{
 				if (i > 1)
 					ret_s += ", ";
 				ret_s += ((CExpr*)getChildAt(i))->toString();
 			}
 			ret_s += ")";
-		}
+		}*/
 		break;
 	}
 	case EXPR_TYPE_FUNC_CALL:		// expr *[expr, ',']
 	{
 		ret_s = ((CExpr*)getChildAt(0))->toString() + "(";
-		for (int i = 1; i < getChildrenCount(); i++)
+		for (unsigned i = 1; i < getChildrenCount(); i++)
 		{
 			if (i > 1)
 				ret_s += ", ";
@@ -4176,11 +4993,8 @@ std::string CExpr::toString(int depth) // depth is not used
 	case EXPR_TYPE_OPERATOR_CALL:
 	{
 		ret_s = m_token_with_namespace.toString() + "(";
-		if (getChildrenCount() > 0)
-		{
-			MY_ASSERT(getChildrenCount() == 1);
-			ret_s += ((CExpr*)getChildAt(0))->toString();
-		}
+		MY_ASSERT(getChildrenCount() == 1);
+		ret_s += ((CExpr2*)getChildAt(0))->toString();
 		ret_s += ")";
 		break;
 	}
@@ -4255,7 +5069,7 @@ std::string CExpr::toString(int depth) // depth is not used
 		twn.copyFrom(m_token_with_namespace);
 		twn.addScope("new");
 		ret_s = twn.toString() + " " + m_pTypeDef->toString() + "(";
-		for (int i = 0; i < getChildrenCount(); i++)
+		for (unsigned i = 0; i < getChildrenCount(); i++)
 		{
 			if (i > 0)
 				ret_s += ", ";
@@ -4276,7 +5090,7 @@ std::string CExpr::toString(int depth) // depth is not used
 			if (m_bFlag)
 			{
 				ret_s += "(";
-				for (int i = 1; i < getChildrenCount(); i++)
+				for (unsigned i = 1; i < getChildrenCount(); i++)
 				{
 					if (i > 1)
 						ret_s += ", ";
@@ -4412,7 +5226,7 @@ std::string CExpr::toString(int depth) // depth is not used
 	case EXPR_TYPE_TYPE_CONSTRUCT:	 // type expr2
 	{
 		ret_s = m_pTypeDef->toString() + "(";
-		for (int i = 0; i < getChildrenCount(); i++)
+		for (unsigned i = 0; i < getChildrenCount(); i++)
 		{
 			if (i > 0)
 				ret_s += ", ";
@@ -4427,8 +5241,8 @@ std::string CExpr::toString(int depth) // depth is not used
 	case EXPR_TYPE_BUILTIN_TYPE_FUNC:	 // type
 		ret_s = m_value + "(" + m_pTypeDef->toString() + ")";
 		break;
-	case EXPR_TYPE_IS_BASE_OF:	 // type
-		ret_s = "__is_base_of(" + m_pTypeDef->toString() + ", " + m_pTypeDef2->toString() + ")";
+	case EXPR_TYPE_BUILTIN_TYPE_FUNC2:	 // type, type
+		ret_s = m_value + "(" + m_pTypeDef->toString() + ", " + m_pTypeDef2->toString() + ")";
 		break;
 	case EXPR_TYPE_CONST_CAST:	   // type expr
 		ret_s = "const_cast<" + m_pTypeDef->toString() + ">(" + ((CExpr*)getChildAt(0))->toString() + ")";
@@ -4533,7 +5347,7 @@ bool CExpr::calculateNumValue(float& f)
 	case EXPR_TYPE_REMAINDER:		// expr expr
 		if (!((CExpr*)getChildAt(0))->calculateNumValue(f) || !((CExpr*)getChildAt(1))->calculateNumValue(f2))
 			return false;
-		f = (int)f % (int)f2;
+		f = (float)((int)f % (int)f2);
 		return true;
 
 	case EXPR_TYPE_ADD:				// expr expr
@@ -4551,61 +5365,66 @@ bool CExpr::calculateNumValue(float& f)
 	case EXPR_TYPE_LEFT_SHIFT:		// expr expr
 		if (!((CExpr*)getChildAt(0))->calculateNumValue(f) || !((CExpr*)getChildAt(1))->calculateNumValue(f2))
 			return false;
-		f = (int)f << (int)f2;
+		f = (float)((int)f << (int)f2);
 		return true;
 
 	case EXPR_TYPE_RIGHT_SHIFT:		// expr expr
 		if (!((CExpr*)getChildAt(0))->calculateNumValue(f) || !((CExpr*)getChildAt(1))->calculateNumValue(f2))
 			return false;
-		f = (int)f >> (int)f2;
+		f = (float)((int)f >> (int)f2);
 		return true;
 
 	case EXPR_TYPE_BIT_AND:	  // expr expr
 		if (!((CExpr*)getChildAt(0))->calculateNumValue(f) || !((CExpr*)getChildAt(1))->calculateNumValue(f2))
 			return false;
-		f = (int)f & (int)f2;
+		f = (float)((int)f & (int)f2);
 		return true;
 
 	case EXPR_TYPE_BIT_XOR:	  // expr expr
 		if (!((CExpr*)getChildAt(0))->calculateNumValue(f) || !((CExpr*)getChildAt(1))->calculateNumValue(f2))
 			return false;
-		f = (int)f ^ (int)f2;
+		f = (float)((int)f ^ (int)f2);
 		return true;
 
 	case EXPR_TYPE_BIT_OR:		// expr expr
 		if (!((CExpr*)getChildAt(0))->calculateNumValue(f) || !((CExpr*)getChildAt(1))->calculateNumValue(f2))
 			return false;
-		f = (int)f | (int)f2;
+		f = (float)((int)f | (int)f2);
 		return true;
 
 	case EXPR_TYPE_AND:		  // expr expr
 		if (!((CExpr*)getChildAt(0))->calculateNumValue(f) || !((CExpr*)getChildAt(1))->calculateNumValue(f2))
 			return false;
-		f = (int)f && (int)f2;
+		f = (float)((int)f && (int)f2);
 		return true;
 
 	case EXPR_TYPE_OR:			// expr expr
 		if (!((CExpr*)getChildAt(0))->calculateNumValue(f) || !((CExpr*)getChildAt(1))->calculateNumValue(f2))
 			return false;
-		f = (int)f || (int)f2;
+		f = (float)((int)f || (int)f2);
 		return true;
 
 	case EXPR_TYPE_CONST_VALUE:			// const_value
-		f = atof(m_value.c_str());
+	{
+		if (!CLexer::isNumber(m_value) && !CLexer::isChar(m_value))
+			return false;
+		f = (float)CLexer::calcValue(m_value.c_str());
 		return true;
-
+	}
 	case EXPR_TYPE_TOKEN_WITH_NAMESPACE:  // token
 	{
-		if (m_token_with_namespace.getDepth() == 1 && m_token_with_namespace.getToken(0) == "false")
+		if (m_token_with_namespace.getDepth() == 1)
 		{
-			f = 0;
-			return true;
-		}
-
-		if (m_token_with_namespace.getDepth() == 1 && m_token_with_namespace.getToken(0) == "true")
-		{
-			f = 1;
-			return true;
+			if (m_token_with_namespace.getToken(0) == "false")
+			{
+				f = 0;
+				return true;
+			}
+			if (m_token_with_namespace.getToken(0) == "true")
+			{
+				f = 1;
+				return true;
+			}
 		}
 
 		SymbolDefObject* pSymbolObj = findSymbolEx(m_token_with_namespace);
@@ -4613,7 +5432,7 @@ bool CExpr::calculateNumValue(float& f)
 		{
 			if (pSymbolObj->type == GO_TYPE_ENUM)
 			{
-				f = pSymbolObj->nValue;
+				f = (float)pSymbolObj->nValue;
 				return true;
 			}
 			if (pSymbolObj->type == GO_TYPE_VAR_DEF)
@@ -4621,7 +5440,7 @@ bool CExpr::calculateNumValue(float& f)
 				CVarDef* pVarDef = pSymbolObj->getVarDef();
 				if (pVarDef->hasValue())
 				{
-					f = pVarDef->getValue();
+					f = (float)pVarDef->getValue();
 					return true;
 				}
 				TRACE2("CExpr::%s, %s doesn't have a value assigned\n", __FUNCTION__, pVarDef->getDebugPath().c_str());
@@ -4666,35 +5485,52 @@ bool CExpr::calculateNumValue(float& f)
 			f = m_pTypeDef->is_abstract();
 		else if (m_value == "__is_class")
 			f = m_pTypeDef->is_class();
+		else if (m_value == "__is_union")
+			f = m_pTypeDef->is_union();
 		else if (m_value == "__is_empty")
 			f = m_pTypeDef->is_empty();
         else if (m_value == "__is_enum")
             f = m_pTypeDef->is_enum();
 		else if (m_value == "__is_pod")
 			f = m_pTypeDef->is_pod();
+		else if (m_value == "__is_polymorphic")
+			f = m_pTypeDef->is_polymorphic();
 		else if (m_value == "__has_nothrow_assign")
 			f = m_pTypeDef->has_nothrow_assign();
+		else if (m_value == "__has_nothrow_constructor")
+			f = m_pTypeDef->has_nothrow_constructor();
 		else if (m_value == "__has_nothrow_copy")
 			f = m_pTypeDef->has_nothrow_copy();
 		else if (m_value == "__has_trivial_assign")
 			f = m_pTypeDef->has_trivial_assign();
 		else if (m_value == "__has_trivial_copy")
 			f = m_pTypeDef->has_trivial_copy();
+		else if (m_value == "__has_trivial_constructor")
+			f = m_pTypeDef->has_trivial_constructor();
 		else if (m_value == "__has_trivial_destructor")
 			f = m_pTypeDef->has_trivial_destructor();
+		else if (m_value == "__has_virtual_destructor")
+			f = m_pTypeDef->has_virtual_destructor();
 		else
 		{
 			MY_ASSERT(false);
 		}
 		return true;
 	}
-	case EXPR_TYPE_IS_BASE_OF:	 // type, type
+	case EXPR_TYPE_BUILTIN_TYPE_FUNC2:	 // func_type, type, type
 	{
-		f = 0;
-		if ((m_pTypeDef->getType() == SEMANTIC_TYPE_STRUCT || m_pTypeDef->getType() == SEMANTIC_TYPE_CLASS) && m_pTypeDef->getClassDef() && 
-			(m_pTypeDef2->getType() == SEMANTIC_TYPE_STRUCT || m_pTypeDef2->getType() == SEMANTIC_TYPE_CLASS) && m_pTypeDef2->getClassDef() && 
-			m_pTypeDef->getClassDef()->hasBaseClass(m_pTypeDef2->getClassDef()))
-				f = 1;
+		if (m_value == "__is_base_of")
+		{
+			f = ((m_pTypeDef->getType() == SEMANTIC_TYPE_STRUCT || m_pTypeDef->getType() == SEMANTIC_TYPE_CLASS) && m_pTypeDef->getClassDef() && 
+				(m_pTypeDef2->getType() == SEMANTIC_TYPE_STRUCT || m_pTypeDef2->getType() == SEMANTIC_TYPE_CLASS) && m_pTypeDef2->getClassDef() && 
+				m_pTypeDef->getClassDef()->hasBaseClass(m_pTypeDef2->getClassDef()));
+		}
+		else if (m_value == "__is_convertible_to")
+			f = comparableWith(m_pTypeDef, m_pTypeDef2) >= 0 ? true : false;
+		else
+		{
+			MY_ASSERT(false);
+		}
 		return true;
 	}
 	default:
@@ -4715,7 +5551,7 @@ CExpr* CExpr::copyExpr(CExpr* pExpr)
 		pNewExpr->m_pSourceTreeNode = dupSourceTreeNode(pExpr->m_pSourceTreeNode);
 
 	pNewExpr->removeAllChildren();
-	for (int i = 0; i < pExpr->getChildrenCount(); i++)
+	for (unsigned i = 0; i < pExpr->getChildrenCount(); i++)
 		pNewExpr->addChild(copyExpr((CExpr*)pExpr->getChildAt(i)));
 
 	return pNewExpr;
@@ -4734,7 +5570,7 @@ void CExpr::changeRefVarName(const std::string& old_name, CExpr* pNewExpr)
 		return;
 	}
 
-	for (int i = 0; i < getChildrenCount(); i++)
+	for (unsigned i = 0; i < getChildrenCount(); i++)
 		((CExpr*)getChildAt(i))->changeRefVarName(old_name, pNewExpr);
 }
 
@@ -4784,7 +5620,7 @@ bool CExpr2::calculateNumValue(float& f)
 
 void CExpr2::changeRefVarName(const std::string& old_name, CExpr* pNewExpr)
 {
-	for (int i = 0; i < getChildrenCount(); i++)
+	for (unsigned i = 0; i < getChildrenCount(); i++)
 	{
 		((CExpr*)getChildAt(i))->changeRefVarName(old_name, pNewExpr);
 	}
@@ -4794,7 +5630,7 @@ std::string CExpr2::toString(int depth)
 {
 	std::string ret_s;
 
-	for (int i = 0; i < getChildrenCount(); i++)
+	for (unsigned i = 0; i < getChildrenCount(); i++)
 	{
 		ret_s += ((CExpr*)getChildAt(i))->toString();
 		if (i < getChildrenCount() - 1)
@@ -5146,16 +5982,20 @@ void CStatement::analyze(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTreeNod
 		break;
 	}
 	case STATEMENT_TYPE_DO:
-		statementDoGetExprStatement(pRoot, pStatementNode, pExprNode);
+	{
+		SourceTreeNode* pWhileStatement = pGrammarAnalyzer->getBlock(NULL, "do_while_expr", getRealScope());
+		MY_ASSERT(pWhileStatement);
+
 		pStatement = new CStatement(this);
-		pStatement->analyze(pGrammarAnalyzer, pStatementNode);
+		pStatement->analyze(pGrammarAnalyzer, statementDoGetStatement(pRoot));
 		m_bFlow |= pStatement->isFlow();
 		addChild(pStatement);
-		pExpr = new CExpr(this, pExprNode);
+
+		pExpr = new CExpr(this, statementDoWhileGetExpr(pWhileStatement));
 		m_bFlow |= pExpr->isFlow();
 		addChild(pExpr);
 		break;
-
+	}
 	case STATEMENT_TYPE_FOR:
 	{
 		SourceTreeNode* pExprNode2, *pExprNode3;
@@ -5419,6 +6259,11 @@ void CStatement::analyze(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTreeNod
 		m_templateTokens = statementAsmGetInfo(pRoot);
 		break;
 	}
+	case STATEMENT_TYPE___PRAGMA:
+	{
+		m_templateTokens = statementPragmaGetInfo(pRoot);
+		break;
+	}
 	default:
 		MY_ASSERT(false);
 	}
@@ -5554,7 +6399,7 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 		{
 			if (!bTemplate)
 			{
-				SourceTreeNode* pTypeNode, *pAttribute;
+				SourceTreeNode* pTypeNode;
 				SourceTreeVector declVarList;
 				defTypedefDataGetInfo(pRoot, pTypeNode, declVarList, m_mod2_strings);
 
@@ -5565,7 +6410,8 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 					m_pTypeDef = TypeDefPointer(new CTypeDef(getRealScope(), "", m_pTypeDef, 0));
 					m_pTypeDef->setDisplayString(display_str);
 				}
-				MY_ASSERT(m_pTypeDef->getType() != SEMANTIC_TYPE_TYPENAME);
+				if (m_pTypeDef && m_pTypeDef->getType() == SEMANTIC_TYPE_TYPENAME) // in a template class with typename
+					break;
 
 				for (size_t i = 0; i < declVarList.size(); i++)
 				{
@@ -5586,14 +6432,16 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 						SymbolDefObject* pSymbolObj = findSymbol(name, FIND_SYMBOL_SCOPE_LOCAL);
 						if (pSymbolObj)
 						{
-							if (pSymbolObj->type == GO_TYPE_TYPEDEF && pSymbolObj->children.size() == 1 && pSymbolObj->getTypeDef()->toFullString() == pTypeDef2->toFullString())
+							std::string s1 = pSymbolObj->getTypeDef()->toFullString();
+							std::string s2 = pTypeDef2->toFullString();
+							if (pSymbolObj->type == GO_TYPE_TYPEDEF && pSymbolObj->children.size() == 1 && s1 == s2)
 							{
 								TRACE2("typedef %s duplicate from previous, ignore it\n", name.c_str());
 								continue;
 							}
 							std::string s = "Type " + name + " is defined differently in seperate locations:\n";
-							s += "   " + pSymbolObj->getTypeDef()->toFullString() + " in " + pSymbolObj->definedIn() + "\n";
-							s += "   " + pTypeDef2->toFullString() + " in " + g_cur_file_stack.back() + ":" + ltoa(g_cur_line_no);
+							s += "   " + s1 + " in " + pSymbolObj->definedIn() + "\n";
+							s += "   " + s2 + " in " + g_cur_file_stack.back() + ":" + ltoa(g_cur_line_no);
 							throw(s);
 						}
 					}
@@ -5607,11 +6455,66 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 					}
 				}
 			}
-			else
+			else // in a template
 			{
-				SourceTreeNode* pSuperTypeNode, *pAttribute;
+				SourceTreeNode* pTypeNode;
 				SourceTreeVector declVarList;
-				defTypedefDataGetInfo(pRoot, pSuperTypeNode, declVarList, m_mod2_strings);
+				defTypedefDataGetInfo(pRoot, pTypeNode, declVarList, m_mod2_strings);
+
+				bool bHasTypename = false;
+				TypeDefPointer pTypeDef;
+				switch (typeGetType(pTypeNode))
+				{
+				case BASICTYPE_TYPE_BASIC:
+					pTypeDef = getTypeDefByTypeNode(pTypeNode);
+					MY_ASSERT(pTypeDef);
+					break;
+				case BASICTYPE_TYPE_USER_DEF:
+				{
+					SourceTreeNode* pUserDefNode;
+					CSUType csu_type = typeUserDefinedGetInfo(pTypeNode, bHasTypename, pUserDefNode);
+					//std::string str = userDefTypeGetInfo(pUserDefNode).toString(); 
+					if (!checkUserDefTypeNodeHasTypename(pUserDefNode))
+					{
+						bHasTypename = false;
+						pTypeDef = getTypeDefByTypeNode(pTypeNode);
+						//MY_ASSERT(pTypeDef);
+					}
+					else
+					{
+						bHasTypename = true;
+						TokenWithNamespace twn = userDefTypeGetInfo(pUserDefNode);
+						CGrammarObject* pGO = findRoughSymbol(twn);
+						if (pGO)
+						{
+							if (pGO->getGoType() == GO_TYPE_TYPEDEF)
+								pTypeDef = ((CTypeDef*)pGO)->sharedFromThis();
+							else if (pGO->getGoType() == GO_TYPE_CLASS)
+								pTypeDef = ((CClassDef*)pGO)->getTypeDef();
+							else
+							{
+								MY_ASSERT(pGO->getGoType() == GO_TYPE_TEMPLATE);
+								CTemplate* pTemplate = (CTemplate*)pGO;
+								MY_ASSERT(pTemplate->getTemplateType() == TEMPLATE_TYPE_CLASS);
+								MY_ASSERT(twn.scopeHasTemplate(twn.getDepth() - 1));
+								//if (pTemplate->isSpecializedTemplate())
+								//	pTemplate = (CTemplate*)pTemplate->getParent();
+								//pTypeDef = pTemplate->classGetInstance(twn, twn.getDepth() - 1, this);
+								pTypeDef = TypeDefPointer(new CTypeDef(getRealScope(), "", pTemplate));
+								pTypeDef->getBaseType()->getClassDef()->setHasTypename();
+							}
+						}
+					}
+					if (!pTypeDef)
+						pTypeDef = getRealScope()->createClassAsChild("", SEMANTIC_TYPE_TYPENAME);
+					break;
+				}
+				case BASICTYPE_TYPE_TYPEOF:
+					pTypeDef = getRealScope()->createClassAsChild("", SEMANTIC_TYPE_TYPENAME);
+					break;
+				default:
+					MY_ASSERT(false);
+				}
 
 				for (size_t i = 0; i < declVarList.size(); i++)
 				{
@@ -5623,8 +6526,10 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 					if (name.empty())
 						throw("name in typedef cannot be empty");
 
-					TypeDefPointer pTypeDef = getRealScope()->createClassAsChild(name, SEMANTIC_TYPE_TYPENAME);
-					pTypeDef->getBaseType()->getClassDef()->setWithinTemplate();
+					TypeDefPointer pTypeDef2 = TypeDefPointer(new CTypeDef(getRealScope(), name, pTypeDef, declVarGetDepth(pDeclVar)));
+					pTypeDef2->setHasTypename();
+					getRealScope()->addTypeDef(pTypeDef2);
+					//pTypeDef->getBaseType()->getClassDef()->setWithinTemplate();
 				}
 			}
 			//printf("******type define %s: %s---------\n", pTypeDef->getName().c_str(), pTypeDef->toString().c_str());
@@ -5635,7 +6540,6 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 			if (!bTemplate)
 			{
 				SourceTreeNode* pSuperTypeNode, *pDefVarTailNode;
-				void* remain_block;
 				defTypedefSuperTypeGetInfo(pRoot, pSuperTypeNode, pDefVarTailNode);
 
 				m_pTypeDef = analyzeSuperType(pSuperTypeNode, (getParentTemplate() != NULL));
@@ -5786,7 +6690,7 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 			}
 			else
 			{
-				m_pTypeDef = TypeDefPointer(new CTypeDef(getRealScope(), name));
+				m_pTypeDef = TypeDefPointer(new CTypeDef(getRealScope(), name, SEMANTIC_TYPE_TYPENAME));
 			}
 			m_pTypeDef->setDefLocation(g_cur_file_stack, g_cur_line_no);
 			getRealScope()->addTypeDef(m_pTypeDef);
@@ -5823,18 +6727,22 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 			}
 			else
 			{
-				m_pTypeDef = TypeDefPointer(new CTypeDef(getRealScope(), name));
+				m_pTypeDef = TypeDefPointer(new CTypeDef(getRealScope(), name, SEMANTIC_TYPE_TYPENAME));
 				m_pTypeDef->setDefLocation(g_cur_file_stack, g_cur_line_no);
 				getRealScope()->addTypeDef(m_pTypeDef);
 			}
 			break;
 		}
 		case TYPEDEF_TYPE_TYPEOF:
+		case TYPEDEF_TYPE_DECLTYPE:
 		{
 			bool bType;
 			std::string name;
 			SourceTreeNode *pExtendedTypeOrExprNode;
-			defTypedefTypeOfGetInfo(pRoot, bType, pExtendedTypeOrExprNode, name);
+			if (m_typedefType == TYPEDEF_TYPE_TYPEOF)
+				defTypedefTypeOfGetInfo(pRoot, bType, pExtendedTypeOrExprNode, name);
+			else
+				defTypedefDecltypeGetInfo(pRoot, bType, pExtendedTypeOrExprNode, name);
 
 			if (!bTemplate)
 			{
@@ -5849,7 +6757,7 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 			}
 			else
 			{
-				m_pTypeDef = TypeDefPointer(new CTypeDef(getRealScope(), name));
+				m_pTypeDef = TypeDefPointer(new CTypeDef(getRealScope(), name, SEMANTIC_TYPE_TYPENAME));
 			}
 			m_pTypeDef->setDefLocation(g_cur_file_stack, g_cur_line_no);
 			getRealScope()->addTypeDef(m_pTypeDef);
@@ -5887,7 +6795,7 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 				bool bRestrict, bInitValueIsStruct;
 				SourceTreeNode* pDeclVar, *pInitValue;
 				declCVarGetInfo(pDeclCVar, bRestrict, pDeclVar, pInitValue, bInitValueIsStruct);
-				if (declVarGetDepth(pDeclVar) == 0 && !declVarIsReference(pDeclVar))
+				if (declVarGetDepth(pDeclVar) == 0 && !declVarGetReferenceCount(pDeclVar))
 					bHasNoPointer = true;
 			}
 		}
@@ -5908,10 +6816,11 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 		if (!m_pTypeDef) // if we cannot analyze it, we just fake one
 		{
 			MY_ASSERT(bTemplate);
-			m_pTypeDef = TypeDefPointer(new CTypeDef(getRealScope(), ""));
+			m_pTypeDef = TypeDefPointer(new CTypeDef(getRealScope(), "", SEMANTIC_TYPE_TYPENAME));
 		}
 
 		TRACE2("CStatement::%s, vardef, type found, numVars=%d\n", __FUNCTION__, declCObjVarList.size());
+		int nAddedVars = 0;
 		for (size_t i = 0; i < declCObjVarList.size(); i++)
 		{
 			SourceTreeNode* pDeclCObjVar = declCObjVarList[i];
@@ -5957,7 +6866,7 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 				if (pExpr)
 				{
 					if (pExpr->calculateNumValue(f))
-						pVarDef->setValue(f);
+						pVarDef->setValue((long)f);
 					else
 						TRACE2("var %s has init expr but cannot calculate\n", pVarDef->toString().c_str());
 				}
@@ -6005,8 +6914,29 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 			{
 				pVarDef->setDefLocation(g_cur_file_stack, g_cur_line_no);
 				getRealScope()->addVarDef(pVarDef);
+				nAddedVars++;
 			}
 			m_var_list.push_back(pVarDef);
+		}
+
+		// for un-named union, we move members to its parent structure
+		if (nAddedVars == 0 && m_def_type == DEF_TYPE_SUPER_TYPE_VAR_DEF && m_pTypeDef->getType() == SEMANTIC_TYPE_UNION && getParent()->getGoType() == GO_TYPE_CLASS)
+		{
+			CClassDef* pUnion = m_pTypeDef->getRootBaseType()->getClassDef();
+			for (SymbolDefMap::iterator it = pUnion->m_symbol_map.begin(); it != pUnion->m_symbol_map.end(); it++)
+			{
+				if (it->second.type == GO_TYPE_VAR_DEF)
+				{
+					CVarDef* pVarDef = it->second.getVarDef();
+					getParent()->addVarDef(pVarDef);
+				}
+				else
+				{
+					MY_ASSERT(it->second.type == GO_TYPE_TYPEDEF);
+					TypeDefPointer pTypeDef = it->second.getTypeDef();
+					getParent()->addTypeDef(pTypeDef);
+				}
+			}
 		}
 		break;
 	}
@@ -6150,7 +7080,9 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 		defTemplateGetInfo(pRoot, m_mod_strings, header_types, csu_type, remain_block);
 
 		CTemplate* pTempTemplate = new CTemplate(getRealScope(), TEMPLATE_TYPE_CLASS, "temp template");
+		TRACE2("CStatement::%s, create template 0x%lx\n", __FUNCTION__, pTempTemplate);
 		pTempTemplate->addHeaderTypeDefs(header_types);
+		pTempTemplate->writeDoxygenHeader();
 
 		CGrammarAnalyzer ga2;
 		ga2.initWithBlocks(getRealScope(), remain_block);
@@ -6210,6 +7142,7 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 				TRACE2("\nCREATING func TEMPLATE %s\n", m_pTemplate->getDebugPath().c_str());
 				//pParentScope->addTemplate(m_pTemplate);
 				m_pTemplate->setDefLocation(g_cur_file_stack, g_cur_line_no);
+				m_pTemplate->writeDoxygenHeader();
 			}
 			else
 			{
@@ -6221,6 +7154,7 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 				TRACE2("\nCREATING func TEMPLATE %s\n", m_pTemplate->getDebugPath().c_str());
 				//getRealScope()->addTemplate(m_pTemplate);
 				m_pTemplate->setDefLocation(g_cur_file_stack, g_cur_line_no);
+				m_pTemplate->writeDoxygenHeader();
 			}
 
 			m_pTemplate->analyzeFunc(header_types, pBodyNode);
@@ -6293,6 +7227,7 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 				m_pTemplate = new CTemplate(getRealScope(), TEMPLATE_TYPE_CLASS, twn.getLastToken());
 				TRACE2("\nCREATING root TEMPLATE %s in statement\n", m_pTemplate->getDebugPath().c_str());
 				m_pTemplate->setDefLocation(g_cur_file_stack, g_cur_line_no);
+				m_pTemplate->writeDoxygenHeader();
 				m_pTemplate->analyzeBaseClass(header_types, pBodyNode);
 
 				if (!pTemplate)
@@ -6301,10 +7236,14 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 					TRACE2("\nCREATING root TEMPLATE %s in map\n", pTemplate->getDebugPath().c_str());
 					pTemplate->setDefLocation(g_cur_file_stack, g_cur_line_no);
 					pTemplate->analyzeBaseClass(header_types, pBodyNode);
+					pTemplate->writeDoxygenHeader();
 					getRealScope()->addTemplate(pTemplate);
 
 					if (body_data)
+					{
+						pTemplate->saveClassBody(pBaseClassDefsBlock, body_data);
 						pTemplate->analyzeClassBody(pBaseClassDefsBlock, body_data);
+					}
 				}
 				else
 				{
@@ -6350,7 +7289,10 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 					pTemplate->addSpecializedTemplate(pTemplate2);
 
 					if (body_data)
+					{
+						pTemplate2->saveClassBody(pBaseClassDefsBlock, body_data);
 						pTemplate2->analyzeClassBody(pBaseClassDefsBlock, body_data);
+					}
 				}
 				else
 				{
@@ -6395,6 +7337,7 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 			m_pTemplate->readTemplateHeaderIntoTypeParams(header_types);
 			m_pTemplate->setDefLocation(g_cur_file_stack, g_cur_line_no);
 			m_pTemplate->analyzeVar(pBodyNode);
+			m_pTemplate->writeDoxygenHeader();
 			break;
 
 		case TEMPLATE_TYPE_FUNC_VAR:
@@ -6405,6 +7348,7 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 			m_pTemplate->readTemplateHeaderIntoTypeParams(header_types);
 			m_pTemplate->setDefLocation(g_cur_file_stack, g_cur_line_no);
 			m_pTemplate->analyzeFuncVar(pBodyNode);
+			m_pTemplate->writeDoxygenHeader();
 			break;
 
 		case TEMPLATE_TYPE_FRIEND_CLASS:
@@ -6415,6 +7359,7 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 			m_pTemplate->readTemplateHeaderIntoTypeParams(header_types);
 			m_pTemplate->setDefLocation(g_cur_file_stack, g_cur_line_no);
 			m_pTemplate->analyzeFriendClass(pBodyNode);
+			m_pTemplate->writeDoxygenHeader();
 			break;
 
 		default:
@@ -6446,12 +7391,12 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 
 			// make sure there's no specialized template for this
 			MY_ASSERT(twn.scopeHasTemplate(twn.getDepth() - 1));
-			std::string type_str;
+			std::string type_str = pTemplate->getName() + "<";
 			TemplateResolvedDefParamVector resolvedDefParams;
 			for (size_t i = 0; i < twn.getTemplateParamCount(twn.getDepth() - 1); i++)
 			{
-				if (!type_str.empty())
-					type_str += ",";
+				if (i > 0)
+					type_str += ", ";
 
 				TemplateResolvedDefParam param;
 				SourceTreeNode* pChild;
@@ -6476,7 +7421,7 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 					float f;
 					if (!expr.calculateNumValue(f))
 						throw(std::string("CStatement::") + __FUNCTION__ + ", cannot calculate " + type_str);
-					param.numValue = f;
+					param.numValue = (long)f;
 					break;
 				}
 				default:
@@ -6484,7 +7429,7 @@ void CStatement::analyzeDef(CGrammarAnalyzer* pGrammarAnalyzer, const SourceTree
 				}
 				resolvedDefParams.push_back(param);
 			}
-			type_str = pTemplate->getName() + "<" + type_str + " >";
+			type_str += " >";
 
 			pSymbolObj = pTemplate->findSymbol(type_str, FIND_SYMBOL_SCOPE_LOCAL);
 			if (pSymbolObj)
@@ -6891,7 +7836,7 @@ std::string CStatement::toString(int depth)
 		if (m_bFlag)
 		{
 			ret_s += printTabs(depth) + "default:\n";
-			for (; n < getChildrenCount(); n++)
+			for (; n < (int)getChildrenCount(); n++)
 				ret_s += ((CStatement*)getChildAt(n))->toString(depth + 1);
 		}
 		ret_s += printTabs(depth) + "}\n";
@@ -6958,7 +7903,7 @@ std::string CStatement::toString(int depth)
 	{
 		ret_s += "flow_try\n";
 		ret_s += ((CStatement*)m_children[0])->toString(10000 + depth + 1);
-		for (int i = 0; i < m_int_vector[0]; i++)
+		for (unsigned i = 0; i < m_int_vector[0]; i++)
 		{
 			CExpr* pExpr1 = (CExpr*)m_children[1 + i * 3];
 			CExpr* pExpr2 = (CExpr*)m_children[1 + i * 3 + 1];
@@ -6986,6 +7931,16 @@ std::string CStatement::toString(int depth)
 			ret_s += s + " ";
 		}
 		ret_s += "\n" + printTabs(depth) + "}\n";
+		break;
+	}
+	case STATEMENT_TYPE___PRAGMA:
+	{
+		ret_s += "__pragma(";
+		for (size_t i = 0; i < m_templateTokens.size(); i++)
+		{
+			ret_s += m_templateTokens[i] + " ";
+		}
+		ret_s += ")\n";
 		break;
 	}
 	default:
@@ -7025,7 +7980,7 @@ std::string CStatement::toDefString(int depth)
 
 	case DEF_TYPE_TYPEDEF:
 		ret_s += combineStrings(m_mod_strings) + "typedef ";
-		if (m_typedefType != TYPEDEF_TYPE_TYPEOF)
+		if (m_typedefType != TYPEDEF_TYPE_TYPEOF && m_typedefType != TYPEDEF_TYPE_DECLTYPE)
 		{
 			if (m_pTypeDef->getType() != SEMANTIC_TYPE_FUNC)
 			{
@@ -7060,12 +8015,13 @@ std::string CStatement::toDefString(int depth)
 		}
 		else
 		{
+			ret_s += (m_typedefType == TYPEDEF_TYPE_TYPEOF ? "__typeof__" : "decltype");
 			std::string s;
 			if (m_pExpr)
 				s = m_pExpr->toString(0);
 			else
 				s = m_pTypeDef->getBaseType()->toString(0);
-			ret_s += "__typeof__(" + s + ")	" + m_pTypeDef->getName();
+			ret_s += "(" + s + ")	" + m_pTypeDef->getName();
 		}
 
 		if (!m_mod2_strings.empty())
@@ -7284,9 +8240,10 @@ bool CStatement::changeRefVarName(const std::string& old_name, CExpr* pNewExpr)
 				pExpr->changeRefVarName(old_name, pNewExpr);
 			}
 		}
+		//break; no break here. let it go through
 	}
 	default:
-		for (int i = 0; i < getChildrenCount(); i++)
+		for (unsigned i = 0; i < getChildrenCount(); i++)
 		{
 			CScope* pChild = getChildAt(i);
 			if (!pChild)
@@ -7297,7 +8254,7 @@ bool CStatement::changeRefVarName(const std::string& old_name, CExpr* pNewExpr)
 				((CExpr2*)pChild)->changeRefVarName(old_name, pNewExpr);
 			else
 			{
-				MY_ASSERT(pChild->getGoType() == GO_TYPE_EXPR2);
+				MY_ASSERT(pChild->getGoType() == GO_TYPE_STATEMENT);
 				((CStatement*)pChild)->changeRefVarName(old_name, pNewExpr);
 			}
 		}
@@ -7307,21 +8264,33 @@ bool CStatement::changeRefVarName(const std::string& old_name, CExpr* pNewExpr)
 	return false;
 }
 
-CClassDef::CClassDef(CScope* pParent, SemanticDataType basic_type, const std::string& name) : CScope(pParent)
+CClassDef::CClassDef(CScope* pParent, SemanticDataType basic_type, const std::string& name) : CScope(pParent, name)
 {
 	m_bDefined = false;
 	m_bWithinTemplate = false;
 	setRealScope(true);
-	m_name = name;
 	m_type = basic_type;
+	if (basic_type == SEMANTIC_TYPE_TYPENAME)
+		setHasTypename();
 
-	TRACE2("\nCClassDef::CClassDef, path=%s\n", getDebugPath().c_str());
+	TRACE2("\nCClassDef::CClassDef, path=%s, hasTypename=%d\n", getDebugPath().c_str(), hasTypename());
 
-	if (pParent->getGoType() == GO_TYPE_TEMPLATE)
+	if (pParent->getGoType() == GO_TYPE_TEMPLATE && ((CTemplate*)pParent)->isInstancedTemplate())
 	{
-		while (pParent->getParent()->getGoType() == GO_TYPE_TEMPLATE)
-			pParent = pParent->getParent();
-		m_template_name = pParent->getName();
+		m_template_name = ((CTemplate*)pParent)->getTemplateName();
+	}
+
+	if (g_write_doxygen_files)
+	{
+		m_doxygen_fname = "class_";
+		if (!m_template_name.empty())
+			m_doxygen_fname += m_template_name + "_";
+		else
+			m_doxygen_fname += name + "_";
+		m_doxygen_fname += ltoa((long)this) + std::string(".html");
+		createDoxygenFile();
+
+		fprintf(m_doxygen_fp, "<h2>%s %s</h2><br><br>", getSemanticTypeName(getType()).c_str(), name.c_str());
 	}
 }
 
@@ -7388,7 +8357,8 @@ void CClassDef::analyze(const SourceTreeNode* pRoot)
 					throw(std::string("CClassDef::") + __FUNCTION__ + ", cannot calculate " + pInitExpr->toString());
 				nValue = (int)f;
 			}
-			getParent()->getRealScope()->addEnumDef(pVarDef->getName(), this, nValue++);
+			pVarDef->setValue(nValue++);
+			getParent()->getRealScope()->addVarDef(pVarDef);
 		}
 		break;
 	}
@@ -7462,7 +8432,10 @@ bool CClassDef::analyzeByTemplate()
 	CTemplate* pGrandParent = (CTemplate*)pParentTemplate->getParent();
 
 	if (!pGrandParent->isDefined())
+	{
+		TRACE2("CClassDef::%s, grant parent %s is not defined\n", __FUNCTION__, pGrandParent->getDebugPath().c_str());
 	    return false;
+	}
 
 	analyzeClassDef(pGrandParent->m_classBaseTypeDefs, NULL, pGrandParent->m_body_sv);
 	return true;
@@ -7472,16 +8445,16 @@ void CClassDef::analyzeClassDef(const ClassBaseTypeDefVector& classBaseTypeDefs,
 {
 	MY_ASSERT(!isDefined());
 	setDefined(true);
-	bool bTemplate = (getParentTemplate() != NULL);
+	bool bInTemplate = (getParentTemplate() != NULL);
 
 	TypeDefPointer pTypeThis = TypeDefPointer(new CTypeDef(NULL, "", getTypeDef(), 1));
 	addVarDef(new CVarDef(this, "this", pTypeThis, NULL));
 
 	// add two default constructor and destructor. they will be replaced when direct function is defined.
-	addFuncDeclare(new CFuncDeclare(this, getClassName(), TypeDefPointer(new CTypeDef(NULL, "", SEMANTIC_TYPE_FUNC, g_type_def_void, 0))));
-	addFuncDeclare(new CFuncDeclare(this, "~" + getClassName(), TypeDefPointer(new CTypeDef(NULL, "", SEMANTIC_TYPE_FUNC, g_type_def_void, 0))));
+	addFuncDeclare(new CFuncDeclare(this, getClassName(), TypeDefPointer(new CTypeDef(NULL, "", SEMANTIC_TYPE_FUNC, TypeDefPointer(NULL), 0))));
+	addFuncDeclare(new CFuncDeclare(this, "~" + getClassName(), TypeDefPointer(new CTypeDef(NULL, "", SEMANTIC_TYPE_FUNC, TypeDefPointer(NULL), 0))));
 
-	if (!bTemplate)
+	if (!bInTemplate)
 	{
 		for (unsigned i = 0; i < classBaseTypeDefs.size(); i++)
 		{
@@ -7523,7 +8496,7 @@ void CClassDef::analyzeClassDef(const ClassBaseTypeDefVector& classBaseTypeDefs,
 	else
 		ga.initWithTokens(getRealScope(), "class_def_body", tokens);
 
-	TRACE2("START ANALYZING CLASS %s\n", getDebugPath().c_str());
+	TRACE2("\nSTART ANALYZING CLASS %s\n", getDebugPath().c_str());
 	ClassAccessModifierType cam_type = CAM_TYPE_PRIVATE;
 	int n = 0;
 	while (SourceTreeNode* pNode = ga.getBlock())
@@ -7565,7 +8538,6 @@ void CClassDef::analyzeClassDef(const ClassBaseTypeDefVector& classBaseTypeDefs,
 				{
 					SourceTreeNode* pSuperTypeNode, *pDefVarTailNode;
 					StringVector mod_strings;
-					void* remain_block;
 					defSuperTypeVarDefGetInfo(pNode, mod_strings, pSuperTypeNode, pDefVarTailNode);
 
 					SuperTypeType super_type;
@@ -7666,7 +8638,7 @@ void CClassDef::analyzeClassDef(const ClassBaseTypeDefVector& classBaseTypeDefs,
 				CFunction* pFunc = new CFunction(this, funcHeaderInfo.name, type_def_ptr, getFlowTypeByModifierBits(funcHeaderInfo.mod_strings), pFuncDeclare);
 				pFunc->setDefLocation(g_cur_file_stack, g_cur_line_no);
 				// otherwise, the function should be analyzed on demand, which is not implemented right now
-				if (getParent()->getGoType() != GO_TYPE_TEMPLATE || ((CTemplate*)getParent())->m_template_name != m_template_name)
+				if (!bInTemplate)
 					func_def_list.push_back(TempBlock(pFunc, pBaseClassInitBlock, bracket_block2, pNode));
 				//void cdbFuncDefGetMemberInitByIndex(const SourceTreeNode* pRoot, int idx, std::string& name, SourceTreeNode*& pExpr);
 				pFunc->setClassAccessModifierType(cam_type);
@@ -7697,7 +8669,7 @@ void CClassDef::analyzeClassDef(const ClassBaseTypeDefVector& classBaseTypeDefs,
 		deleteSourceTreeNode(pNode);
 	}
 
-	TRACE2("STOP ANALYZING CLASS %s\n", getDebugPath().c_str());
+	TRACE2("\nSTOP ANALYZING CLASS %s\n", getDebugPath().c_str());
 }
 
 void CClassDef::addDef(CStatement* pStatement)
@@ -7709,14 +8681,24 @@ void CClassDef::addDef(CStatement* pStatement)
 
 bool CClassDef::hasBaseClass(CClassDef* pClassDef)
 {
+	int inst_id = g_inst_id++;
+	TRACE2("%s(%d), my_class=%s\n", __FUNCTION__, inst_id, getDebugPath().c_str());
 	if (pClassDef->getDebugPath() == getDebugPath())
+	{
+		TRACE2("%s(%d), two are same\n", __FUNCTION__, inst_id);
 		return true;
-
+	}
+	if (!isDefined())
+	{
+		MY_ASSERT(((CTemplate*)getParent())->isInstancedTemplate());
+		analyzeByTemplate();
+	}
 	for (size_t i = 0; i < m_baseTypeList.size(); i++)
 	{
 		BaseClassCAMPair& pair = m_baseTypeList[i];
 
 		TypeDefPointer pTypeDef2 = pair.pTypeDef;
+		TRACE2("%s(%d), checking base class %s\n", __FUNCTION__, inst_id, pTypeDef2->toFullString().c_str());
 		while (!pTypeDef2->isBaseType() && pTypeDef2->getDepth() == 0)
 			pTypeDef2 = pTypeDef2->getBaseType();
 		MY_ASSERT(pTypeDef2->getClassDef());
@@ -7724,20 +8706,30 @@ bool CClassDef::hasBaseClass(CClassDef* pClassDef)
 			return true;
 	}
 
+	TRACE2("%s(%d), return false\n", __FUNCTION__, inst_id);
 	return false;
 }
 
 bool CClassDef::hasConstructorOrCanBeAssignedWith(TypeDefPointer pTypeDef)
 {
-	TRACE2("\nCClassDef::hasConstructorOrCanBeAssignedWith, me=%s, className=%s, pTypeDef=%s, ", getDebugPath().c_str(), getClassName().c_str(), pTypeDef->toFullString().c_str());
+	TRACE2("\n%s, me=%s, className=%s, pTypeDef=%s, ", __FUNCTION__, getDebugPath().c_str(), getClassName().c_str(), pTypeDef->toFullString().c_str());
+	pTypeDef = pTypeDef->getRootBaseType();
 	if ((pTypeDef->getType() == SEMANTIC_TYPE_CLASS || pTypeDef->getType() == SEMANTIC_TYPE_STRUCT || pTypeDef->getType() == SEMANTIC_TYPE_UNION) && pTypeDef->getClassDef())
 	{
 		//MY_ASSERT(pTypeDef->getClassDef());
-		if (pTypeDef->getClassDef()->getDebugPath() == getDebugPath())
+		CClassDef* pClassDef = pTypeDef->getClassDef();
+		if (pClassDef->getDebugPath() == getDebugPath())
 		{
 			TRACE("same\n");
 			return true;
 		}
+
+		if (pClassDef->hasBaseClass(this))
+		{
+			TRACE2("%s, it's a base class, return true\n", __FUNCTION__);
+			return true;
+		}
+		TRACE("not base class, continue\n");
 	}
 
 	std::vector<TypeDefPointer> typeList;
@@ -7747,6 +8739,7 @@ bool CClassDef::hasConstructorOrCanBeAssignedWith(TypeDefPointer pTypeDef)
 	int maxMatchScore = -1;
 	std::vector<CGrammarObject*> matched_v;
 
+	// check constructor
 	if (!getName().empty())
 	{
 		pSymbolObj = findSymbol(getClassName(), FIND_SYMBOL_SCOPE_LOCAL);
@@ -7755,9 +8748,9 @@ bool CClassDef::hasConstructorOrCanBeAssignedWith(TypeDefPointer pTypeDef)
 			MY_ASSERT(pSymbolObj->type == GO_TYPE_FUNC_DECL);
 			std::vector<CGrammarObject*> func_list;
 			std::string my_s = getPath();
-			TRACE("checking constructor\n");
 			for (size_t i = 0; i < pSymbolObj->children.size(); i++)
 			{
+				TRACE2("%s, checking constructor, %u/%u\n", __FUNCTION__, i, pSymbolObj->children.size());
 				CGrammarObject* pGrammarObj = pSymbolObj->children[i];
 				// remove self constructor to avoid recursive calling
 				if (pGrammarObj->getGoType() == GO_TYPE_FUNC_DECL)
@@ -7780,7 +8773,7 @@ bool CClassDef::hasConstructorOrCanBeAssignedWith(TypeDefPointer pTypeDef)
 						}
 					}
 				}
-				TRACE("add to constructor func list, \n");
+				//TRACE("add to constructor func list, \n");
 				func_list.push_back(pGrammarObj);
 			}
 			checkBestMatchedFunc(func_list, typeList, false, maxMatchScore, matched_v);
@@ -7802,6 +8795,8 @@ bool CClassDef::hasConstructorOrCanBeAssignedWith(TypeDefPointer pTypeDef)
 			TRACE("no constructor found\n");
 	}
 
+	// check base classes
+	TRACE2("%s, checking base classes, cnt=%u, ", __FUNCTION__, m_baseTypeList.size());
 	for (size_t i = 0; i < m_baseTypeList.size(); i++)
 	{
 		BaseClassCAMPair& pair = m_baseTypeList[i];
@@ -7819,18 +8814,25 @@ bool CClassDef::hasConstructorOrCanBeAssignedWith(TypeDefPointer pTypeDef)
 		TRACE("failed\n");
 	}
 
+	TRACE2("%s, return false\n", __FUNCTION__);
 	return false;
 }
 
 SymbolDefObject* CClassDef::findSymbol(const std::string& name, FindSymbolScope scope, FindSymbolMode mode)
 {
-	TRACE2("CClassDef::findSymbol %s in %s, scope=%d, mode=%d, ", name.c_str(), getDebugPath().c_str(), scope, mode);
+	TRACE2("CClassDef::findSymbol %s in %s, scope=%d, mode=%d, isDefined=%d, baseClassCount=%d, ", 
+		name.c_str(), getDebugPath().c_str(), scope, mode, isDefined(), m_baseTypeList.size());
 
 	if (getParent()->getGoType() == GO_TYPE_TEMPLATE && ((CTemplate*)getParent())->getTemplateType() == TEMPLATE_TYPE_CLASS &&
-	    !isDefined() && ((CTemplate*)getParent())->isInstancedTemplate())
-        analyzeByTemplate();
+	    ((CTemplate*)getParent())->isInstancedTemplate())
+	{
+		if (!isDefined())
+			analyzeByTemplate();
+		if (scope >= FIND_SYMBOL_SCOPE_SCOPE && mode == FIND_SYMBOL_MODE_TEMPLATE && m_template_name == name)
+			return getParent()->findSymbol(name, scope, mode);
+	}
 
-	if (scope == FIND_SYMBOL_SCOPE_PARENT && (name == m_name || m_template_name == name))
+	if (scope >= FIND_SYMBOL_SCOPE_SCOPE && (name == m_name || m_template_name == name) && mode == FIND_SYMBOL_MODE_ANY)
 		return getParent()->findSymbol(m_name, FIND_SYMBOL_SCOPE_LOCAL, mode);
 
 	SymbolDefObject* pSymbolObj = NULL;
@@ -7892,7 +8894,7 @@ bool CClassDef::has_constructor()
 			return true;
 	}
 
-	for (int i = 0; i < getChildrenCount(); i++)
+	for (unsigned i = 0; i < getChildrenCount(); i++)
 	{
 		CScope* pGrammarObj = getChildAt(i);
 		if (pGrammarObj->getGoType() != GO_TYPE_STATEMENT) // another type is GO_TYPE_FUNCTION
@@ -7945,7 +8947,7 @@ bool CClassDef::is_abstract()
 {
 	MY_ASSERT(getType() == SEMANTIC_TYPE_CLASS || getType() == SEMANTIC_TYPE_STRUCT);
 
-	for (int i = 0; i < getChildrenCount(); i++)
+	for (unsigned i = 0; i < getChildrenCount(); i++)
 	{
 		CScope* pGrammarObj = getChildAt(i);
 		if (pGrammarObj->getGoType() == GO_TYPE_STATEMENT)
@@ -7999,7 +9001,7 @@ bool CClassDef::is_empty() // don't have constructor or destructor, don't have p
 			return false;
 	}
 
-	for (int i = 0; i < getChildrenCount(); i++)
+	for (unsigned i = 0; i < getChildrenCount(); i++)
 	{
 		CScope* pGrammarObj = getChildAt(i);
 		if (pGrammarObj->getGoType() == GO_TYPE_STATEMENT)
@@ -8085,7 +9087,7 @@ bool CClassDef::is_pod()
 		MY_ASSERT(pSymbolObj->type == GO_TYPE_FUNC_DECL);
 		return false;
 	}
-	for (int i = 0; i < getChildrenCount(); i++)
+	for (unsigned i = 0; i < getChildrenCount(); i++)
 	{
 		CScope* pGrammarObj = getChildAt(i);
 		if (pGrammarObj->getGoType() == GO_TYPE_STATEMENT)
@@ -8140,6 +9142,12 @@ bool CClassDef::is_pod()
 	}
 
 	return true;
+}
+
+bool CClassDef::is_polymorphic()
+{
+	//TODO:
+	return false;
 }
 
 bool CClassDef::has_nothrow_assign()
@@ -8209,6 +9217,12 @@ bool CClassDef::has_nothrow_assign()
 		}
 	}
 
+	return true;
+}
+
+bool CClassDef::has_nothrow_constructor()
+{
+	// TODO:
 	return true;
 }
 
@@ -8285,7 +9299,7 @@ bool CClassDef::has_trivial_assign()
 			return false;
 	}
 
-	for (int i = 0; i < getChildrenCount(); i++)
+	for (unsigned i = 0; i < getChildrenCount(); i++)
 	{
 		CScope* pGrammarObj = getChildAt(i);
 		if (pGrammarObj->getGoType() == GO_TYPE_STATEMENT)
@@ -8377,6 +9391,27 @@ bool CClassDef::has_trivial_copy()
 	return true;
 }
 
+bool CClassDef::has_trivial_constructor()
+{
+	std::string constructor_name = (m_template_name.empty() ? getName() : m_template_name);
+	SymbolDefObject* pSymbolObj = findSymbol("~" + constructor_name, FIND_SYMBOL_SCOPE_LOCAL);
+	if (pSymbolObj)
+	{
+		MY_ASSERT(pSymbolObj->type == GO_TYPE_FUNC_DECL);
+		return false;
+	}
+
+	for (size_t i = 0; i < m_baseTypeList.size(); i++)
+	{
+		BaseClassCAMPair& pair = m_baseTypeList[i];
+
+		if (!pair.pTypeDef->has_trivial_constructor())
+			return false;
+	}
+
+	return true;
+}
+
 bool CClassDef::has_trivial_destructor()
 {
 	std::string constructor_name = (m_template_name.empty() ? getName() : m_template_name);
@@ -8396,6 +9431,12 @@ bool CClassDef::has_trivial_destructor()
 	}
 
 	return true;
+}
+
+bool CClassDef::has_virtual_destructor()
+{
+	//TODO:
+	return false;
 }
 
 std::string CClassDef::toString(int depth)
@@ -8422,7 +9463,7 @@ std::string CClassDef::toString(int depth)
 	{
 	case SEMANTIC_TYPE_ENUM:
 	{
-		for (int i = 0; i < getChildrenCount(); i++)
+		for (unsigned i = 0; i < getChildrenCount(); i++)
 		{
 			CStatement* pStatement = (CStatement*)getChildAt(i);
 			MY_ASSERT(pStatement->getStatementType() == STATEMENT_TYPE_DEF);
@@ -8437,7 +9478,7 @@ std::string CClassDef::toString(int depth)
 	}
 	case SEMANTIC_TYPE_UNION:
 	{
-		for (int i = 0; i < getChildrenCount(); i++)
+		for (unsigned i = 0; i < getChildrenCount(); i++)
 		{
 			CStatement* pStatement = (CStatement*)getChildAt(i);
 			MY_ASSERT(pStatement->getStatementType() == STATEMENT_TYPE_DEF);
@@ -8449,7 +9490,7 @@ std::string CClassDef::toString(int depth)
 	case SEMANTIC_TYPE_CLASS:
 	{
 		enterScope(this);
-		for (int i = 0; i < getChildrenCount(); i++)
+		for (unsigned i = 0; i < getChildrenCount(); i++)
 		{
 			CScope* pGrammarObj = getChildAt(i);
 			if (pGrammarObj->getGoType() == GO_TYPE_STATEMENT)
@@ -8481,22 +9522,36 @@ std::string CClassDef::toString(int depth)
 	return ret_s;
 }
 
-CTemplate::CTemplate(CScope* pParent, TemplateType type, const std::string& name) : CScope(pParent)
+CTemplate::CTemplate(CScope* pParent, TemplateType type, const std::string& name, const std::string& template_name) : CScope(pParent, name)
 {
 	setRealScope(true);
 	m_bDefined = false;
 	m_nTemplateType = type;
-	m_name = name;
-	m_template_name = name;
+	m_template_name = template_name.empty() ? name : template_name;
 	m_data_type = SEMANTIC_TYPE_CLASS; // class or struct
 	m_pFuncReturnExtendedTypeNode = NULL;
 	m_func_hasVArgs = false;
 	m_specializedTypeParamCount = 0;
+
+	m_doxygen_fname = std::string("template_") + m_template_name + "_" + ltoa((long)this) + std::string(".html");
 }
 
 CTemplate::~CTemplate()
 {
 	clear();
+}
+
+void CTemplate::writeDoxygenHeader()
+{
+	if (!g_write_doxygen_files)
+		return;
+
+	createDoxygenFile();
+	fprintf(m_doxygen_fp, "%s<br>", toHeaderString(0, true).c_str());
+	fprintf(m_doxygen_fp, "Template Type: %s<br>", templateTypeToString(getTemplateType()).c_str());
+	if (getTemplateType() == TEMPLATE_TYPE_CLASS)
+		fprintf(m_doxygen_fp, "Template Role: %s<br>", getTemplateRoleString().c_str());
+	fflush(m_doxygen_fp);
 }
 
 std::string CTemplate::getDebugName()
@@ -8608,6 +9663,7 @@ CTemplate::TypeParam CTemplate::readTemplateTypeParam(const SourceTreeNode* pChi
 	return param;
 }
 
+// only called in CTemplate::addHeaderTypeDefs()
 void CTemplate::createParamTypeFromTemplateHeader(const SourceTreeNode* pRoot)
 {
 	std::string typeName;
@@ -8622,6 +9678,7 @@ void CTemplate::createParamTypeFromTemplateHeader(const SourceTreeNode* pRoot)
 	else
 	{
 		CTemplate* pTemplate = new CTemplate(this, TEMPLATE_TYPE_CLASS, typeName);
+		TRACE2("CTemplate::%s, create template 0x%lx\n", __FUNCTION__, pTemplate);
 		pTemplate->m_data_type = (bClass ? SEMANTIC_TYPE_CLASS : SEMANTIC_TYPE_STRUCT);
 
 		for (unsigned i = 0; i < templateTypeParams.size(); i++)
@@ -8630,6 +9687,7 @@ void CTemplate::createParamTypeFromTemplateHeader(const SourceTreeNode* pRoot)
 			pTemplate->createParamTypeFromTemplateHeader(pNode);
 		}
 
+		pTemplate->writeDoxygenHeader();
 		addTemplate(pTemplate);
 	}
 }
@@ -8758,7 +9816,7 @@ void CTemplate::analyzeFunc(const std::vector<void*>& header_types, const Source
 	}
 	//std::string s = displaySourceTreeExtendedType(m_pFuncReturnExtendedTypeNode);
 
-	TRACE2("START ANALYZING FUNC TEMPLATE %s\n", getDebugPath().c_str());
+	TRACE2("\nSTART ANALYZING FUNC TEMPLATE %s\n", getDebugPath().c_str());
 	CGrammarAnalyzer ga;
 	ga.initWithBlocks(getRealScope(), funcHeaderInfo.params_block);
 	SourceTreeNode* pFuncParamsNode = ga.getBlock();
@@ -8800,7 +9858,7 @@ void CTemplate::analyzeFunc(const std::vector<void*>& header_types, const Source
 	}
 	m_func_hasVArgs = funcParamsHasVArgs(pFuncParamsNode);
 	deleteSourceTreeNode(pFuncParamsNode);
-	TRACE2("STOP ANALYZING TEMPLATE %s\n", getDebugPath().c_str());
+	TRACE2("\nSTOP ANALYZING TEMPLATE %s\n", getDebugPath().c_str());
 
 	if (!body_data)
 		return;
@@ -8809,35 +9867,43 @@ void CTemplate::analyzeFunc(const std::vector<void*>& header_types, const Source
 	m_body_sv = CGrammarAnalyzer::bracketBlockGetTokens(body_data);
 }
 
-// return -1 means failed. return number of params that not matching exactly
-int CTemplate::funcCheckFitForTypeList(const TypeDefVector& typeList, TemplateResolvedDefParamVector& resolvedDefParams)
+// return score. -1 means failed.
+int CTemplate::funcInstancedCheckFitForTypeList(const TypeDefVector& typeList, TemplateResolvedDefParamVector& resolvedDefParams)
 {
 	MY_ASSERT(getTemplateType() == TEMPLATE_TYPE_FUNC);
+	MY_ASSERT(isInstancedTemplate());
 
-	if (typeList.size() > m_funcParams.size())
+	CTemplate* pParentTemplate = (CTemplate*)getParent();
+	const std::vector<FuncParamItem>& funcParams = pParentTemplate->m_funcParams;
+	if (typeList.size() > funcParams.size())
 		return -1;
 
 	int ret_n = 0;
-	resolvedDefParams.clear();
-
 	unsigned i;
-	for (i = 0; i < m_funcParams.size(); i++)
+	for (i = 0; i < funcParams.size(); i++)
 	{
-		FuncParamItem& item = m_funcParams[i];
+		const FuncParamItem& item = funcParams.at(i);
 		if (i < typeList.size())
 		{
 			TypeDefPointer pTypeDef = typeList[i];
+			TRACE2("%s, checking param %u/%u, ", __FUNCTION__, i, funcParams.size());
 
 			if (item.pTypeDef)
 			{
 				MY_ASSERT(false);
 				if (item.pTypeDef->toFullString() != pTypeDef->toFullString())
+				{
+					TRACE2("type not same, mine=%s, real=%s\n", item.pTypeDef->toFullString().c_str(), pTypeDef->toFullString().c_str());
 					return -1;
+				}
+				TRACE("type are same\n");
 			}
 			else if (item.param_type == FUNC_PARAM_TYPE_REGULAR)
 			{
 				SourceTreeNode* pExtendedType = extendedTypeCreateFromType(dupSourceTreeNode(item.pTypeNode), item.pDeclVarNode);
+				TRACE2("try to resolve %s by %s\n", displaySourceTreeExtendedType(pExtendedType).c_str(), pTypeDef->toFullString().c_str());
 				int n = resolveParamType(extendedTypeVarCreateFromExtendedType(pExtendedType), pTypeDef, resolvedDefParams);
+				TRACE2("%s, resolveParamType returns %d\n", __FUNCTION__, n);
 				if (n < 0)
 					return -1;
 				ret_n += n;
@@ -8851,88 +9917,228 @@ int CTemplate::funcCheckFitForTypeList(const TypeDefVector& typeList, TemplateRe
 		else
 		{
 			if (item.pInitExprNode == NULL)
+			{
+				TRACE("param doesn't have default value\n");
 				return -1;
+			}
+			TRACE("param has default value, skip\n");
 		}
 	}
+	TRACE2("%s, resolve params succeeded\n", __FUNCTION__);
 
-	return ret_n;
-}
-
-TypeDefPointer CTemplate::funcGetInstance(const TypeDefVector& typeList, const TemplateResolvedDefParamVector& resolvedDefParams)
-{
-	std::string type_str;
-	for (size_t i = 0; i < resolvedDefParams.size(); i++)
-	{
-		if (!type_str.empty())
-			type_str += ",";
-		MY_ASSERT(resolvedDefParams[i].pTypeDef);
-		type_str += resolvedDefParams[i].pTypeDef->toFullString();
-	}
-	type_str += m_name + "<" + type_str + " >";
-
-	SymbolDefObject* pSymbolObj = findSymbol(type_str, FIND_SYMBOL_SCOPE_LOCAL);
-	if (pSymbolObj)
-	{
-		MY_ASSERT(pSymbolObj->type == GO_TYPE_FUNC_DECL);
-		MY_ASSERT(pSymbolObj->children[0]->getGoType() == GO_TYPE_TEMPLATE);
-		CTemplate* pInstancedTemplate = (CTemplate*)pSymbolObj->getFuncDeclareAt(0);
-		pSymbolObj = pInstancedTemplate->findSymbol(type_str, FIND_SYMBOL_SCOPE_LOCAL);
-		MY_ASSERT(pSymbolObj);
-		MY_ASSERT(pSymbolObj->type == GO_TYPE_TYPEDEF);
-		TypeDefPointer pTypeDef = pSymbolObj->getTypeDef();
-		MY_ASSERT(pTypeDef->getType() == SEMANTIC_TYPE_FUNC);
-		return pTypeDef;
-	}
-
-	TRACE2("instance func template for :%s\n", type_str.c_str());
-
-	CTemplate* pInstancedTemplate = duplicateAsChild(type_str);
-	for (size_t i = 0; i < resolvedDefParams.size(); i++)
-	{
-		if (resolvedDefParams[i].pTypeDef)
-			pInstancedTemplate->addTypeDef(TypeDefPointer(new CTypeDef(this, resolvedDefParams[i].typeName, resolvedDefParams[i].pTypeDef, 0)));
-		//else
-		//	pInstancedTemplate->addVarDef(new CVarDef(this, resolvedDefParams[i].typeName, g_type_def_int, NULL));
-	}
-	addTemplate(pInstancedTemplate);
-	pInstancedTemplate->setResolvedDefParams(resolvedDefParams);
-
-	TypeDefPointer pFuncType = TypeDefPointer(new CTypeDef(pInstancedTemplate, type_str, SEMANTIC_TYPE_FUNC, pInstancedTemplate->getTypeDefByExtendedTypeNode(m_pFuncReturnExtendedTypeNode), 0));
+	TypeDefPointer pFuncType = TypeDefPointer(new CTypeDef(this, getName(), SEMANTIC_TYPE_FUNC, getTypeDefByExtendedTypeNode(pParentTemplate->m_pFuncReturnExtendedTypeNode), 0));
 	pFuncType->setDefLocation(g_cur_file_stack, g_cur_line_no);
-	for (unsigned i = 0; i < m_funcParams.size(); i++)
+	for (unsigned i = 0; i < funcParams.size(); i++)
 	{
-		FuncParamItem& item = m_funcParams[i];
+		const FuncParamItem& item = funcParams.at(i);
 		switch (item.param_type)
 		{
 		case FUNC_PARAM_TYPE_REGULAR:
 		{
 			TypeDefPointer pTypeDef = item.pTypeDef;
 			if (!pTypeDef)
-				pTypeDef = pInstancedTemplate->getTypeDefByDeclVarNode(getTypeDefByTypeNode(item.pTypeNode), item.pDeclVarNode);
-
-			CVarDef* pVarDef = new CVarDef(pInstancedTemplate, declVarGetName(item.pDeclVarNode), pTypeDef, NULL, (item.pInitExprNode ? new CExpr(pInstancedTemplate, item.pInitExprNode) : NULL));
+			{
+				pTypeDef = getTypeDefByTypeNode(item.pTypeNode); 
+				// sometimes type cannot be resolved successfully, like tr1::enable_if<is_error_code_enum<_Enum>::value, error_code>::type * = 0 in <system_error> in windows
+				if (pTypeDef)
+					pTypeDef = getTypeDefByDeclVarNode(pTypeDef, item.pDeclVarNode);
+			}
+			CVarDef* pVarDef = new CVarDef(this, declVarGetName(item.pDeclVarNode), pTypeDef, NULL, (item.pInitExprNode ? new CExpr(this, item.pInitExprNode) : NULL));
 			pFuncType->addFuncParam(pVarDef);
 			break;
 		}
 		case FUNC_PARAM_TYPE_FUNC:
 		{
-			TypeDefPointer pTypeDef = pInstancedTemplate->getTypeDefByFuncTypeNode(item.pTypeNode);
-			pTypeDef->addFuncParam(new CVarDef(pInstancedTemplate, "", pTypeDef));
+			TypeDefPointer pTypeDef = getTypeDefByFuncTypeNode(item.pTypeNode);
+			pTypeDef->addFuncParam(new CVarDef(this, "", pTypeDef));
 			break;
 		}
 		default:
 			MY_ASSERT(false);
 		}
 	}
-	if (m_func_hasVArgs)
+	if (pParentTemplate->m_func_hasVArgs)
 		pFuncType->setHasVArgs(true);
 
 	//CFunction* pFunc = new CFunction(this, type_str, pFuncType, FLOW_TYPE_NONE, new CFuncDeclare(this, type_str, pFuncType));
-	pInstancedTemplate->addTypeDef(pFuncType);
+	m_instanced_func_type = pFuncType;
 
-	//pFunc->analyze(bracket_block, pRoot, memberInitCount);
+	return ret_n;
+}
 
-	return pFuncType;
+// return -1 means failed. return number of params that not matching exactly
+int CTemplate::funcRootCheckFitForTypeList(const TypeDefVector& typeList, TemplateResolvedDefParamVector& resolvedDefParams)
+{
+	MY_ASSERT(getTemplateType() == TEMPLATE_TYPE_FUNC);
+	MY_ASSERT(!isInstancedTemplate());
+
+	std::string type_str = m_template_name + "<" + typeListToFullString(typeList) + " >";
+	TRACE2("%s, root func template=%s, type_str=%s, ", __FUNCTION__, getDebugPath().c_str(), type_str.c_str());
+
+	if (typeList.size() > m_funcParams.size())
+	{
+		TRACE2("my func param count is %u, not %u\n", m_funcParams.size(), typeList.size());
+		return -1;
+	}
+
+	if (m_matched_typestr_map.find(type_str) != m_matched_typestr_map.end())
+	{
+		CTemplate* pTemplate = m_matched_typestr_map[type_str];
+		if (!pTemplate)
+		{
+			TRACE("found NULL in cache, return -1\n");
+			return -1;
+		}
+		resolvedDefParams = pTemplate->m_resolvedDefParams;
+		TRACE2("found in cache, score=%d\n", pTemplate->getMatchedScore());
+		return pTemplate->getMatchedScore();
+	}
+
+	TRACE("not found in cache, calculate\n");
+	CTemplate* pInstancedTemplate = duplicateAsChild(type_str);
+	int ret_n = pInstancedTemplate->funcInstancedCheckFitForTypeList(typeList, resolvedDefParams);
+	TRACE2("%s, returned score=%d\n", __FUNCTION__, ret_n);
+	if (ret_n >= 0)
+	{
+		addTemplate(pInstancedTemplate);
+		pInstancedTemplate->m_resolvedDefParams = resolvedDefParams;
+		pInstancedTemplate->setMatchedScore(ret_n);
+	}
+	else
+	{
+		delete pInstancedTemplate;
+		pInstancedTemplate = NULL;
+	}
+	m_matched_typestr_map[type_str] = pInstancedTemplate;
+	return ret_n;
+}
+
+TypeDefPointer CTemplate::funcGetInstance(const TypeDefVector& typeList, const TemplateResolvedDefParamVector& resolvedDefParams)
+{
+	MY_ASSERT(getTemplateType() == TEMPLATE_TYPE_FUNC);
+
+	if (isInstancedTemplate())
+	{
+		MY_ASSERT(m_instanced_func_type);
+		return m_instanced_func_type;
+	}
+
+	std::string type_str = m_template_name + "<" + typeListToFullString(typeList) + " >";
+	MY_ASSERT(m_matched_typestr_map.find(type_str) != m_matched_typestr_map.end());
+	CTemplate* pInstancedTemplate = m_matched_typestr_map[type_str];
+	MY_ASSERT(pInstancedTemplate);
+
+	return pInstancedTemplate->m_instanced_func_type;
+}
+
+// instance func template according to type params
+CTemplate* CTemplate::funcRootInstanceByTypeParams(const TypeDefVector& typeList)
+{
+	TRACE2("%s, ", __FUNCTION__);
+	MY_ASSERT(getTemplateType() == TEMPLATE_TYPE_FUNC);
+	MY_ASSERT(!isInstancedTemplate());
+	MY_ASSERT(typeList.size() == m_typeParams.size());
+
+	SymbolDefMap::iterator it;
+	
+	// check whether it already exists
+	StringVector typeStrList;
+	for (it = m_symbol_map.begin(); it != m_symbol_map.end(); it++)
+	{
+		if (it->second.type != GO_TYPE_FUNC_DECL)
+			continue;
+		if (it->second.children.size() > 1)
+			continue;
+		if (it->second.children[0]->getGoType() != GO_TYPE_TEMPLATE)
+			continue;
+		CTemplate* pTemplate = (CTemplate*)it->second.children[0];
+		MY_ASSERT(pTemplate->isInstancedTemplate());
+
+		bool bSame = true;
+		for (unsigned j = 0; j < pTemplate->m_resolvedDefParams.size(); j++)
+		{
+			if (typeStrList.size() <= j)
+				typeStrList.push_back(typeList[j]->toFullString());
+			const TemplateResolvedDefParam& param = pTemplate->m_resolvedDefParams.at(j);
+			MY_ASSERT(param.pTypeDef);
+			if (typeStrList[j] != param.pTypeDef->toFullString())
+			{
+				bSame = false;
+				break;
+			}
+		}
+		if (bSame)
+			return pTemplate;
+	}
+
+	CTemplate* pInstancedTemplate = duplicateAsChild("");
+	for (unsigned i = 0; i < m_typeParams.size(); i++)
+	{
+		const TypeParam& type_param = m_typeParams.at(i);
+		MY_ASSERT(!type_param.name.empty());
+		MY_ASSERT(!type_param.pNumValueType);
+		TemplateResolvedDefParam resolved_param;
+		resolved_param.typeName = type_param.name;
+		resolved_param.pTypeDef = typeList[i];
+		pInstancedTemplate->m_resolvedDefParams.push_back(resolved_param);
+		TypeDefPointer pTypeDef = TypeDefPointer(new CTypeDef(pInstancedTemplate, resolved_param.typeName, resolved_param.pTypeDef, 0));
+		pInstancedTemplate->addTypeDef(pTypeDef);
+	}
+
+	TypeDefPointer pFuncType = TypeDefPointer(new CTypeDef(this, "", SEMANTIC_TYPE_FUNC, pInstancedTemplate->getTypeDefByExtendedTypeNode(m_pFuncReturnExtendedTypeNode), 0));
+
+	std::string param_str = m_template_name + "<";
+	for (unsigned i = 0; i < m_funcParams.size(); i++)
+	{
+		if (i > 0)
+			param_str += ", ";
+		const FuncParamItem& orig_param = m_funcParams.at(i);
+		FuncParamItem new_param;
+		MY_ASSERT(orig_param.param_type == FUNC_PARAM_TYPE_REGULAR);
+		MY_ASSERT(orig_param.pInitExprNode == NULL); // TODO
+		new_param.param_type = orig_param.param_type;
+		new_param.pTypeNode = new_param.pDeclVarNode = new_param.pInitExprNode = NULL;
+		new_param.pDeclVarNode = declVarCreateByName(declVarGetName(orig_param.pDeclVarNode).getLastToken());
+		TypeDefPointer pTypeDef = pInstancedTemplate->getTypeDefByTypeNode(orig_param.pTypeNode);
+		if (declVarGetDepth(orig_param.pDeclVarNode) > 0)
+			pTypeDef = TypeDefPointer(new CTypeDef(NULL, "", pTypeDef, declVarGetDepth(orig_param.pDeclVarNode)));
+		new_param.pTypeDef = pTypeDef;
+		pInstancedTemplate->m_funcParams.push_back(new_param);
+
+		CVarDef* pVarDef = new CVarDef(pInstancedTemplate, declVarGetName(orig_param.pDeclVarNode), pTypeDef);
+		pInstancedTemplate->addVarDef(pVarDef);
+		pFuncType->addFuncParam(pVarDef);
+
+		param_str += pTypeDef->toFullString();
+	}
+	param_str += " >";
+
+	SymbolDefObject* pDefObj = findSymbol(param_str, FIND_SYMBOL_SCOPE_LOCAL);
+	if (pDefObj)
+	{
+		MY_ASSERT(pDefObj->type == GO_TYPE_FUNC_DECL);
+		MY_ASSERT(pDefObj->children.size() == 1);
+		MY_ASSERT(pDefObj->children[0]->getGoType() == GO_TYPE_TEMPLATE);
+		CTemplate* pTemplate = (CTemplate*)pDefObj->children[0];
+		delete pInstancedTemplate;
+		// TODO: delete pFuncType
+		TRACE2("%s, already have such template 0x%lx, delete this one\n", pTemplate);
+		pInstancedTemplate = pTemplate;
+	}
+	else
+	{
+		MY_ASSERT(m_matched_typestr_map.find(param_str) == m_matched_typestr_map.end());
+		pInstancedTemplate->setName(param_str);
+		addTemplate(pInstancedTemplate);
+		m_matched_typestr_map[param_str] = pInstancedTemplate;
+
+		pFuncType->setName(param_str);
+		if (m_func_hasVArgs)
+			pFuncType->setHasVArgs(true);
+		pInstancedTemplate->m_instanced_func_type = pFuncType;
+	}
+
+	return pInstancedTemplate;
 }
 
 void CTemplate::addSpecializedTemplate(CTemplate* pTemplate)
@@ -9006,6 +10212,7 @@ void CTemplate::analyzeBaseClass(const std::vector<void*>& header_types, const S
 CTemplate* CTemplate::analyzeSpecializedClass(const std::vector<void*>& header_types, const SourceTreeNode* pBodyNode)
 {
 	MY_ASSERT(m_nTemplateType == TEMPLATE_TYPE_CLASS);
+	MY_ASSERT(isRootTemplate());
 
 	int specializedTypeCount;
 	CSUType csu_type;
@@ -9028,7 +10235,7 @@ CTemplate* CTemplate::analyzeSpecializedClass(const std::vector<void*>& header_t
 
 	CTemplate* pSpecializedTemplate = new CTemplate(this, m_nTemplateType, m_name);
 	TRACE2("\nCREATING specialized TEMPLATE %s\n", pSpecializedTemplate->getDebugPath().c_str());
-	pSpecializedTemplate->readTemplateHeaderIntoTypeParams(header_types); // sometimes typeParam defines different than the root one
+	pSpecializedTemplate->readTemplateHeaderIntoTypeParams(header_types);
 
 	// composing uniqueId, replace typeNames with standard names.
 	// check whether it's already defined by checking uniqueId.
@@ -9080,7 +10287,7 @@ CTemplate* CTemplate::analyzeSpecializedClass(const std::vector<void*>& header_t
 		if (typeParam.type == TEMPLATE_PARAM_TYPE_DATA)
 		{
 			if (paramType == TEMPLATE_PARAM_TYPE_VALUE)
-				throw(std::string("The ") + ltoa(i) + " specialized type parameter's type is different from the one defined previously");
+				throw(std::string("The ") + ltoa(i + 1) + " specialized type parameter is a value but type is expected");
 			SourceTreeNode* pDup = dupSourceTreeNode(pChildNode);
 			if (paramType == TEMPLATE_PARAM_TYPE_DATA)
 			{
@@ -9097,7 +10304,7 @@ CTemplate* CTemplate::analyzeSpecializedClass(const std::vector<void*>& header_t
 		else if (typeParam.type == TEMPLATE_PARAM_TYPE_FUNC)
 		{
 			if (paramType != TEMPLATE_PARAM_TYPE_FUNC)
-				throw(std::string("The ") + ltoa(i) + " specialized type parameter's type is different from the one defined previously");
+				throw(std::string("The ") + ltoa(i + 1) + " specialized type parameter is not a func");
 			SourceTreeNode* pDup = dupSourceTreeNode(pChildNode);
 			funcTypeReplaceTypeNameIfAny(pDup, typeNameMap);
 			s = displaySourceTreeFuncType(pDup);
@@ -9106,7 +10313,7 @@ CTemplate* CTemplate::analyzeSpecializedClass(const std::vector<void*>& header_t
 		else
 		{
 			if (paramType != TEMPLATE_PARAM_TYPE_VALUE)
-				throw(std::string("The ") + ltoa(i) + " specialized type parameter's type is different from the one defined previously");
+				throw(std::string("The ") + ltoa(i + 1) + " specialized type parameter's type is not a value");
 			SourceTreeNode* pDup = dupSourceTreeNode(pChildNode);
 			exprReplaceTypeNameIfAny(pDup, typeNameMap);
 			s = displaySourceTreeExpr(pDup);
@@ -9175,6 +10382,7 @@ CTemplate* CTemplate::analyzeSpecializedClass(const std::vector<void*>& header_t
 	pSpecializedTemplate->m_uniqueId = uniqueId;
 	if (body_data)
 		pSpecializedTemplate->saveClassBody(pBaseClassDefsBlock, body_data);
+	pSpecializedTemplate->writeDoxygenHeader();
 
 	return pSpecializedTemplate;
 }
@@ -9194,6 +10402,7 @@ void CTemplate::saveClassBody(void* pBaseClassDefsBlock, void* body_data)
 		MY_ASSERT(ga.isEmpty());
 		parentDefCount = baseClassDefsGetCount(pBaseClassDefsNode);
 	}
+	TRACE2("CTemplate::%s, template=%s, parentCount=%d\n", __FUNCTION__, getDebugPath().c_str(), parentDefCount);
 	for (int i = 0; i < parentDefCount; i++)
 	{
 		ClassBaseTypeDef def;
@@ -9202,43 +10411,35 @@ void CTemplate::saveClassBody(void* pBaseClassDefsBlock, void* body_data)
 		def.pUserDefTypeNode = dupSourceTreeNode(pUserDefTypeNode);
 		def.pBaseScope = NULL;
 
-		TypeDefPointer pTypeDef = getTypeDefByUserDefTypeNode(pUserDefTypeNode, true, true);
-		if (pTypeDef) // if base type is a template whose type params depend on this template type param, then it could be NULL
+		CGrammarObject* pGO = findRoughSymbol(userDefTypeGetInfo(pUserDefTypeNode));
+		if (!pGO)
+			throw std::string("base type '") + displaySourceTreeUserDefType(pUserDefTypeNode) + "' not found";
+		if (pGO->getGoType() == GO_TYPE_TEMPLATE)
 		{
-            SemanticDataType type = pTypeDef->getType();
-            switch (pTypeDef->getType())
-            {
-            case SEMANTIC_TYPE_BASIC:
-            case SEMANTIC_TYPE_TYPENAME:
-                break;
-            case SEMANTIC_TYPE_CLASS:
-            case SEMANTIC_TYPE_STRUCT:
-                while (!pTypeDef->isBaseType() && pTypeDef->getDepth() == 0)
-                    pTypeDef = pTypeDef->getBaseType();
-                def.pBaseScope = pTypeDef->getClassDef();
-                MY_ASSERT(def.pBaseScope);
-                break;
-            case SEMANTIC_TYPE_TEMPLATE:
-                def.pBaseScope = pTypeDef->getTemplate();
-                MY_ASSERT(def.pBaseScope);
-                break;
-            default:
-                MY_ASSERT(false);
-            }
-            if (def.pBaseScope)
-            {
-                TRACE2("CTemplate::%s, i=%d, defNode=%s, base class is %s\n", __FUNCTION__, i, displaySourceTreeUserDefType(pUserDefTypeNode).c_str(), def.pBaseScope->getDebugPath().c_str());
-            }
-            else
-            {
-                TRACE2("CTemplate::%s, i=%d, base type is %s\n", __FUNCTION__, i, getSemanticTypeName(pTypeDef->getType()).c_str());
-            }
+			MY_ASSERT(((CTemplate*)pGO)->getTemplateType() == TEMPLATE_TYPE_CLASS || ((CTemplate*)pGO)->getTemplateType() == TEMPLATE_TYPE_FRIEND_CLASS);
+			def.pBaseScope = (CTemplate*)pGO;
+			TRACE2("%s, %d: base template is %s\n", __FUNCTION__, i, def.pBaseScope->getDebugPath().c_str());
+		}
+		else if (pGO->getGoType() == GO_TYPE_TYPEDEF)
+		{
+			TypeDefPointer pTypeDef = ((CTypeDef*)pGO)->sharedFromThis();
+			while (!pTypeDef->isBaseType())
+			{
+				MY_ASSERT(!pTypeDef->getClassDef() && pTypeDef->getDepth() == 0);
+				pTypeDef = pTypeDef->getBaseType();
+			}
+			MY_ASSERT(pTypeDef->getClassDef());
+			def.pBaseScope = pTypeDef->getClassDef();
+			TRACE2("%s, %d: base class is %s\n", __FUNCTION__, i, def.pBaseScope->getDebugPath().c_str());
+		}
+		else
+		{
+			MY_ASSERT(false);
 		}
 		m_classBaseTypeDefs.push_back(def);
 	}
 
 	m_body_sv = CGrammarAnalyzer::bracketBlockGetTokens(body_data);
-
 }
 
 void CTemplate::mergeWithBaseClass(CTemplate* pNewTemplate, bool bReplaceName)
@@ -9429,7 +10630,8 @@ void CTemplate::analyzeClassBody(void* pBaseClassDefsBlock, void* body_data)
 	CVarDef* pVarDef = new CVarDef(this, "this", pTypeThis, NULL);
 	addVarDef(pVarDef);
 
-	TRACE2("START ANALYZING CLASS TEMPLATE %s\n", getDebugPath().c_str());
+	TRACE2("\nSTART ANALYZING CLASS TEMPLATE %s\n", getDebugPath().c_str());
+
 	// roughly analyze template content
 	CGrammarAnalyzer ga;
 	ga.initWithBlocks(getRealScope(), body_data);
@@ -9438,7 +10640,7 @@ void CTemplate::analyzeClassBody(void* pBaseClassDefsBlock, void* body_data)
 	while (SourceTreeNode* pNode = ga.getBlock(&blockTokens))
 	{
 		ga.getRetBlockDefineIn(g_cur_file_stack, g_cur_line_no);
-		TRACE2("CTemplate::%s, template=%s, ANALYZING LINE %s:%d\n", __FUNCTION__, getDebugPath().c_str(), g_cur_file_stack.back().c_str(), g_cur_line_no);
+		TRACE2("\nCTemplate::%s, template=%s, ANALYZING LINE %s:%d\n", __FUNCTION__, getDebugPath().c_str(), g_cur_file_stack.back().c_str(), g_cur_line_no);
 		switch (cdbGetType(pNode))
 		{
 		case CDB_TYPE_CAM:
@@ -9505,7 +10707,7 @@ void CTemplate::analyzeClassBody(void* pBaseClassDefsBlock, void* body_data)
 			MY_ASSERT(false);
 		}
 	}
-	TRACE2("STOP ANALYZING CLASS TEMPLATE %s\n", getDebugPath().c_str());
+	TRACE2("\nSTOP ANALYZING CLASS TEMPLATE %s\n", getDebugPath().c_str());
 	m_bDefined = true;
 
 	// some template referenced in this template is defined afterwards. so we have to instance class only on demand
@@ -9726,11 +10928,10 @@ int CTemplate::findResolvedDefParam(const TemplateResolvedDefParamVector& v, con
 
 CTemplate* CTemplate::duplicateAsChild(const std::string& name)
 {
-	CTemplate* pTemplate = new CTemplate(this, m_nTemplateType, name);
+	CTemplate* pTemplate = new CTemplate(this, m_nTemplateType, name, m_template_name);
 	TRACE2("\nCREATING instanced TEMPLATE %s\n", pTemplate->getDebugPath().c_str());
 	pTemplate->setDefLocation(m_file_stack, getDefLineNo());
 	pTemplate->m_data_type = m_data_type;
-	pTemplate->m_template_name = m_template_name;
 	for (unsigned i = 0; i < m_typeParams.size(); i++)
 	{
 		TypeParam param = m_typeParams[i];
@@ -9750,6 +10951,7 @@ CTemplate* CTemplate::duplicateAsChild(const std::string& name)
 	pTemplate->m_pFuncReturnExtendedTypeNode = NULL;
 	pTemplate->m_uniqueId = m_uniqueId;
 	pTemplate->m_classBaseTypeDefs = m_classBaseTypeDefs;
+	pTemplate->writeDoxygenHeader();
 
 	return pTemplate;
 }
@@ -9758,14 +10960,14 @@ CTemplate* CTemplate::duplicateAsChild(const std::string& name)
 // return -1 if it's already set with another type value, return 0 if not matched, otherwise return score that matched
 int CTemplate::resolveParamNameType(const TokenWithNamespace& twn, TypeDefPointer pTypeDef, TemplateResolvedDefParamVector& resolvedDefParams)
 {
-    TRACE2("CTemplate::%s, twn=%s, pTypeDef=%s\n", __FUNCTION__, twn.toString().c_str(), pTypeDef->toFullString().c_str());
+    TRACE2("%s, twn=%s, pTypeDef=%s\n", __FUNCTION__, twn.toString().c_str(), pTypeDef->toFullString().c_str());
 
     int ret_n = 0;
 
     for (unsigned i = 0; i < resolvedDefParams.size(); i++)
     {
         TemplateResolvedDefParam& defParam = resolvedDefParams[i];
-        TRACE2("xxxxxx    i=%u, typeName=%s\n", i, defParam.typeName.c_str());
+        TRACE2("%s, %u/%u, typeName=%s\n", __FUNCTION__, i, resolvedDefParams.size(), defParam.typeName.c_str());
         if (defParam.typeName != twn.getLastToken())
             continue;
 
@@ -9782,9 +10984,12 @@ int CTemplate::resolveParamNameType(const TokenWithNamespace& twn, TypeDefPointe
                     return -1;
                 }
             }
-            defParam.pTypeDef = pTypeDef;
-            defParam.flags |= 2;
-            addTypeDef(TypeDefPointer(new CTypeDef(this, defParam.typeName, defParam.pTypeDef, 0)));
+			else
+			{
+				defParam.pTypeDef = pTypeDef;
+				defParam.flags |= 2;
+				addTypeDef(TypeDefPointer(new CTypeDef(this, defParam.typeName, defParam.pTypeDef, 0)));
+			}
             ret_n = 10;
             TRACE2("CTemplate::%s, template types match, i=%u, return %d\n", __FUNCTION__, i, ret_n);
             return ret_n;
@@ -9890,7 +11095,7 @@ int CTemplate::resolveParamType(const SourceTreeNode* pExtendedTypeVarNode, Type
 	mod_strings = extendedTypeGetModStrings(pExtendedTypeNode);
 	bool node_const = isInModifiers(mod_strings, MODBIT_CONST);
 	bool node_volatile = isInModifiers(mod_strings, MODBIT_VOLATILE);
-	bool node_reference = extendedTypeIsReference(pExtendedTypeNode);
+	bool node_reference = extendedTypeGetReferenceCount(pExtendedTypeNode) != 0;
 	SourceTreeNode* pTypeNode = extendedTypeGetTypeNode(pExtendedTypeNode);
 	typeGetModifierBits(pTypeNode, mod_strings, mod2_strings);
 	if (isInModifiers(mod_strings, MODBIT_CONST) || isInModifiers(mod2_strings, MODBIT_CONST))
@@ -9934,14 +11139,19 @@ int CTemplate::resolveParamType(const SourceTreeNode* pExtendedTypeVarNode, Type
 			TRACE2("CTemplate::%s, def type is basic while real type is not:%d, return -1\n", __FUNCTION__, pTypeDef->getType());
 			return -1;
 		}
-		if (pTypeDef->toString() != displaySourceTreeType(pTypeNode))
+		if (pTypeDef->toString() == displaySourceTreeType(pTypeNode))
 		{
-			TRACE2("CTemplate::%s, def type is %s while real type is %s, return -1\n", __FUNCTION__, displaySourceTreeType(pTypeNode).c_str(), pTypeDef->toString().c_str());
-			return -1;
+			ret_n += 5;
+			TRACE2("CTemplate::%s, both are same basic types, return %d\n", __FUNCTION__, ret_n);
+			return ret_n;
 		}
-		ret_n += 5;
-		TRACE2("CTemplate::%s, both are basic types, return %d\n", __FUNCTION__, ret_n);
-		return ret_n;
+		if (pTypeDef->isNumType() && basicTypeIsNumType(typeBasicGetInfo(pTypeNode)))
+		{
+			TRACE2("CTemplate::%s, both are same basic num types, return %d\n", __FUNCTION__, ret_n);
+			return ret_n;
+		}
+		TRACE2("CTemplate::%s, def type is %s while real type is %s, return -1\n", __FUNCTION__, displaySourceTreeType(pTypeNode).c_str(), pTypeDef->toString().c_str());
+		return -1;
 	}
 
     if (typeGetType(pTypeNode) == BASICTYPE_TYPE_DATA_MEMBER_POINTER)
@@ -10020,18 +11230,12 @@ int CTemplate::resolveParamType(const SourceTreeNode* pExtendedTypeVarNode, Type
 			TRACE2("CTemplate::%s, defined as typename, return %d\n", __FUNCTION__, ret_n);
 			return ret_n;
 		}
-		/*if (twn.scopeHasTemplate(twn.getDepth() - 1))
-		{
-			std::string s = twn.toString();
-			throw(twn.toString() + " is not a template");
-		}*/
-		if (pTypeDef->toFullString() != pTypeDef2->toFullString())
-		{
-			TRACE2("CTemplate::%s, typedef str no match, real name=0x%lx:%s, def name=0x%lx:%s, return -1\n", __FUNCTION__,
-				(unsigned long)pTypeDef.get(), pTypeDef->toFullString().c_str(), (unsigned long)pTypeDef2.get(), pTypeDef2->toFullString().c_str());
-			return -1;
-		}
-		TRACE2("CTemplate::%s, typedef str match, return %d\n", __FUNCTION__, ret_n);
+		n = comparableWith(pTypeDef, pTypeDef2);
+		if (n >= 0)
+			ret_n += n;
+		else
+			ret_n = -1;
+		TRACE2("CTemplate::%s, match two types, return %d\n", __FUNCTION__, ret_n);
 		return ret_n;
 	}
 	case GO_TYPE_TEMPLATE:
@@ -10067,7 +11271,7 @@ int CTemplate::resolveParamType(const SourceTreeNode* pExtendedTypeVarNode, Type
 	if (pInstancedTemplate->getTemplateName() != twn.getLastToken())
 		return -1;
 
-	for (int i = 0; i < twn.getTemplateParamCount(twn.getDepth() - 1); i++)
+	for (unsigned i = 0; i < twn.getTemplateParamCount(twn.getDepth() - 1); i++)
 	{
 		int bType;
 		SourceTreeNode* pChild;
@@ -10113,7 +11317,7 @@ int CTemplate::resolveParamFunc(const SourceTreeNode* pFuncNode, TypeDefPointer 
     funcTypeGetInfo(pFuncNode, pReturnExtendedType, mod_strings, pScope, nDepth, name, pFuncParamsNode, mod2_strings);
 
     SourceTreeVector param_v = funcParamsGetList(pFuncParamsNode);
-    if (pTypeDef->getFuncParamCount() < param_v.size())
+    if (pTypeDef->getFuncParamCount() < (int)param_v.size())
         return -1;
 
     int score = 0;
@@ -10187,22 +11391,22 @@ int CTemplate::resolveParamNumValue(const SourceTreeNode* pExprNode, long numVal
 
 CTemplate* CTemplate::classResolveParamForBaseTemplate(const TemplateResolvedDefParamVector& realTypeList)
 {
-	std::string type_str;
+	std::string type_str = m_name + "<";
 	for (size_t i = 0; i < realTypeList.size(); i++)
 	{
-		if (!type_str.empty())
-			type_str += ",";
+		if (i > 0)
+			type_str += ", ";
 		if (realTypeList[i].pTypeDef)
 		{
-			MY_ASSERT(realTypeList[i].pTypeDef->getType() != SEMANTIC_TYPE_TYPENAME);
+			//MY_ASSERT(!realTypeList[i].pTypeDef->hasTypename());
 			type_str += realTypeList[i].pTypeDef->toFullString();
 		}
 		else
 			type_str += ltoa(realTypeList[i].numValue);
 	}
-	type_str = m_name + "<" + type_str + " >";
+	type_str += " >";
 
-	//TRACE2("classResolveParamForBaseTemplate, TEMPLATE=%s, REALTYPE=%s\n", toHeaderString().c_str(), type_str.c_str());
+	TRACE2("classResolveParamForBaseTemplate, TEMPLATE=%s, REALTYPE=%s\n", toHeaderString(0).c_str(), type_str.c_str());
 
 	SymbolDefObject* pSymbolObj = findSymbol(type_str, FIND_SYMBOL_SCOPE_LOCAL);
 	if (pSymbolObj)
@@ -10288,7 +11492,7 @@ CTemplate* CTemplate::classResolveParamForBaseTemplate(const TemplateResolvedDef
 				float f;
 				if (!expr.calculateNumValue(f))
 					throw(std::string("CTemplate::") + __FUNCTION__ + ", cannot calculate " + expr.toString());
-				rdp.numValue = f;
+				rdp.numValue = (long)f;
 				CVarDef* pVarDef = new CVarDef(pInstancedTemplate, defItem.name, g_type_def_int, NULL);
 				pVarDef->setValue(rdp.numValue);
 				pInstancedTemplate->addVarDef(pVarDef);
@@ -10303,21 +11507,35 @@ CTemplate* CTemplate::classResolveParamForBaseTemplate(const TemplateResolvedDef
 	return pInstancedTemplate;
 }
 
+TemplateResolvedDefParamVector CTemplate::prepareResolvedDefParams()
+{
+	TemplateResolvedDefParamVector resolvedDefParams;
+	for (unsigned i = 0; i < m_typeParams.size(); i++)
+	{
+		TypeParam& defItem = m_typeParams[i];
+		TemplateResolvedDefParam resolvedParam;
+		resolvedParam.typeName = defItem.name;
+		resolvedParam.flags = (defItem.type != TEMPLATE_PARAM_TYPE_VALUE ? 1 : 0);
+		resolvedDefParams.push_back(resolvedParam);
+	}
+	return resolvedDefParams;
+}
+
 int CTemplate::classResolveParamForSpecializedTemplate(const TemplateResolvedDefParamVector& realTypeList, CTemplate*& pRetTemplate)
 {
 	MY_ASSERT(m_specializedTypeParams.size() == realTypeList.size());
 
-	std::string type_str;
+	std::string type_str = m_name + "<";
 	for (size_t i = 0; i < realTypeList.size(); i++)
 	{
-		if (!type_str.empty())
-			type_str += ",";
+		if (i > 0)
+			type_str += ", ";
 		if (realTypeList[i].pTypeDef)
 			type_str += realTypeList[i].pTypeDef->toFullString();
 		else
 			type_str += ltoa(realTypeList[i].numValue);
 	}
-	type_str = m_name + "<" + type_str + " >";
+	type_str += " >";
 
 	TRACE2("CTemplate::%s, TEMPLATE=%s, REALTYPE=%s\n", __FUNCTION__, toHeaderString(0).c_str(), type_str.c_str());
 
@@ -10331,16 +11549,7 @@ int CTemplate::classResolveParamForSpecializedTemplate(const TemplateResolvedDef
 	}
 
 	CTemplate* pInstancedTemplate = duplicateAsChild(type_str);
-	TemplateResolvedDefParamVector resolvedDefParams;
-
-	for (unsigned i = 0; i < m_typeParams.size(); i++)
-	{
-		TypeParam& defItem = m_typeParams[i];
-		TemplateResolvedDefParam resolvedParam;
-		resolvedParam.typeName = defItem.name;
-		resolvedParam.flags = (defItem.type != TEMPLATE_PARAM_TYPE_VALUE ? 1 : 0);
-		resolvedDefParams.push_back(resolvedParam);
-	}
+	TemplateResolvedDefParamVector resolvedDefParams = prepareResolvedDefParams();
 
 	int score = 0;
 	TRACE2("CTemplate::%s, specializedTypeParams.size()=%lu\n", __FUNCTION__, m_specializedTypeParams.size());
@@ -10400,7 +11609,7 @@ int CTemplate::classResolveParamForSpecializedTemplate(const TemplateResolvedDef
 CTemplate* CTemplate::classMatchForATemplate_(const TemplateResolvedDefParamVector& realTypeList)
 {
 	TRACE2("CTemplate::%s, template=%s, realTypeList size=%lu\n", __FUNCTION__, m_name.c_str(), realTypeList.size());
-	MY_ASSERT(m_specializedTypeParams.size() == 0);
+	MY_ASSERT(isRootTemplate());
 	if (realTypeList.size() > m_typeParams.size())
 	{
 		TRACE2("CTemplate::%s, realType size %lu is larger than decl size %lu\n", __FUNCTION__,  realTypeList.size(), m_typeParams.size());
@@ -10435,7 +11644,7 @@ CTemplate* CTemplate::classMatchForATemplate_(const TemplateResolvedDefParamVect
 
 	if (matched_v.empty())
 	{
-		TRACE2("CTemplate::%s, template=%s, no matched specialized template, return base template.\n", __FUNCTION__, m_name.c_str());
+		TRACE2("CTemplate::%s, template=%s, no matched specialized template, return root template.\n", __FUNCTION__, m_name.c_str());
 		return pBaseInstanceTemplate;
 	}
 
@@ -10451,7 +11660,7 @@ CTemplate* CTemplate::classMatchForATemplate_(const TemplateResolvedDefParamVect
 }
 
 // this template must be the instanced template
-TypeDefPointer CTemplate::classGetInstance_(const TemplateResolvedDefParamVector& resolvedDefParams)
+TypeDefPointer CTemplate::classGetInstance_()
 {
 	MY_ASSERT(isInstancedTemplate());
 	TypeDefPointer pTypeDef;
@@ -10489,12 +11698,14 @@ TypeDefPointer CTemplate::classGetInstance_(const TemplateResolvedDefParamVector
 TypeDefPointer CTemplate::classGetInstance(const TokenWithNamespace& twn, int depth, CScope* pOtherScope)
 {
 	TRACE2("\nCTemplate::classGetInstance, template=%s, twn=%s, depth=%d, other scope=%s\n", getDebugPath().c_str(), twn.toString().c_str(), depth, pOtherScope->getDebugPath().c_str());
+	MY_ASSERT(isRootTemplate());
+
 	TemplateResolvedDefParamVector realParamTypes;
 	bool bHasTypename = false;
-	std::string type_str;
-	for (int i = 0; i < twn.getTemplateParamCount(depth); i++)
+	std::string type_str = m_name + "<";
+	for (unsigned i = 0; i < twn.getTemplateParamCount(depth); i++)
 	{
-		if (!type_str.empty())
+		if (i > 0)
 			type_str += ", ";
 
 		SourceTreeNode* pChildNode;
@@ -10535,7 +11746,7 @@ TypeDefPointer CTemplate::classGetInstance(const TokenWithNamespace& twn, int de
 			{
 				if (!pTypeDef2)
 				{
-					MY_ASSERT(false);
+					return TypeDefPointer();
 				}
 				param.pTypeDef = pTypeDef2;
 			}
@@ -10552,15 +11763,9 @@ TypeDefPointer CTemplate::classGetInstance(const TokenWithNamespace& twn, int de
 			TRACE2("\nCTemplate::classGetInstance, template=%s, i=%d, calculate expr:%s\n", getDebugPath().c_str(), i, displaySourceTreeExpr(pChildNode).c_str());
 			CExpr expr((pOtherScope ? pOtherScope : this), pChildNode);
 			float f;
-			if (!expr.calculateNumValue(f))
-			{
-				//std::string s = expr.toString();
-				//throw(std::string("CTemplate::") + __FUNCTION__ + ", cannot calculate " + s);
-				// when analyzing a template, a template might need to be instanced to check whether a member inside is a type or a var,
-				// in this case, it might not be able to get instanced so need to return an empty pointer
-				return TypeDefPointer();
-			}
-			param.numValue = f;
+			if (!expr.calculateNumValue(f)) // it happens when there's typename in the expr, so assume f=0
+				f = 0;
+			param.numValue = (long)f;
 			type_str += ltoa(param.numValue);
 			break;
 		}
@@ -10569,7 +11774,7 @@ TypeDefPointer CTemplate::classGetInstance(const TokenWithNamespace& twn, int de
 		}
 		realParamTypes.push_back(param);
 	}
-	type_str = m_name + "<" + type_str + " >";
+	type_str += " >";
 	TRACE2("CTemplate::%s, type_str = %s, bHasTypename=%d\n", __FUNCTION__, type_str.c_str(), bHasTypename);
 
 	if (bHasTypename)
@@ -10594,26 +11799,28 @@ TypeDefPointer CTemplate::classGetInstance(const TokenWithNamespace& twn, int de
 		return pInstancedTemplate->createClassAsChild(type_str, SEMANTIC_TYPE_CLASS);
 	}
 
-	TemplateResolvedDefParamVector resolvedDefParams;
 	CTemplate* pTemplate = classMatchForATemplate_(realParamTypes);
 	if (!pTemplate)
 	{
 		TRACE("CTemplate::classGetInstance, cannot find a match\n");
 		return TypeDefPointer();
 	}
-	return pTemplate->classGetInstance_(resolvedDefParams);
+	return pTemplate->classGetInstance_();
 }
 
 CTemplate* CTemplate::getTemplateByParams(const TokenWithNamespace& twn, int depth)
 {
 	MY_ASSERT(isRootTemplate());
 	if (twn.getTemplateParamCount(depth) > m_typeParams.size())
+	{
+		TRACE2("\n%s, template is %s, param count incorrect, expected is %u, real is %d\n", __FUNCTION__, m_name.c_str(), m_typeParams.size(), twn.getTemplateParamCount(depth));
+		MY_ASSERT(false);
 		return NULL;
-
-	TRACE2("\nCTemplate::%s, template %s is defined at %s, params=<", __FUNCTION__, m_name.c_str(), definedIn().c_str());
+	}
+	TRACE2("\n%s, template %s is defined at %s, params=<", __FUNCTION__, m_name.c_str(), definedIn().c_str());
 	StringVector realParams;
 	std::string s;
-	for (int j = 0; j < twn.getTemplateParamCount(depth); j++)
+	for (unsigned j = 0; j < twn.getTemplateParamCount(depth); j++)
 	{
 		SourceTreeNode* pNode;
 		switch (twn.getTemplateParamAt(depth, j, pNode))
@@ -10763,13 +11970,14 @@ bool CTemplate::compareResolvedDefParams(const TemplateResolvedDefParamVector& t
 
 void CTemplate::setResolvedDefParams(const TemplateResolvedDefParamVector& v)
 {
+	MY_ASSERT(getTemplateType() == TEMPLATE_TYPE_CLASS);
     MY_ASSERT(m_resolvedDefParams.empty());
     m_resolvedDefParams = v;
     //if (getTemplateType() != TEMPLATE_TYPE_CLASS)
         return;
 
     MY_ASSERT(isInstancedTemplate());
-    MY_ASSERT(m_resolvedTypeParams.empty());
+    //MY_ASSERT(m_resolvedTypeParams.empty());
 
     CTemplate* pDefTemplate = (CTemplate*)getParent();
     TypeParamVector* pDefVector = NULL;
@@ -10801,7 +12009,7 @@ void CTemplate::setResolvedDefParams(const TemplateResolvedDefParamVector& v)
                 param2.numValue = pVarDef->getValue();
                 name += ltoa(param2.numValue);
             }
-            m_resolvedTypeParams.push_back(param2);
+            //m_resolvedTypeParams.push_back(param2);
         }
     }
     else
@@ -10834,7 +12042,7 @@ void CTemplate::setResolvedDefParams(const TemplateResolvedDefParamVector& v)
                 param2.numValue = (long)f;
                 name += ltoa(param2.numValue);
             }
-            m_resolvedTypeParams.push_back(param2);
+            //m_resolvedTypeParams.push_back(param2);
         }
     }
 
@@ -10844,9 +12052,10 @@ void CTemplate::setResolvedDefParams(const TemplateResolvedDefParamVector& v)
     TRACE2("CTemplate::%s, set this instanced template's name to %s\n", __FUNCTION__, getName().c_str());
 }
 
-std::string CTemplate::toHeaderString(int depth)
+std::string CTemplate::toHeaderString(int depth, bool bDoxygen)
 {
 	std::string ret_s;
+	std::string name = bDoxygen ? getDoxygenLink(m_name) : m_name;
 
 	ret_s += "template<";
 
@@ -10896,12 +12105,12 @@ std::string CTemplate::toHeaderString(int depth)
 		{
 			ret_s += combineStrings(m_mod2_strings);
 			if (!m_mod3_strings.empty())
-				ret_s += "(" + combineStrings(m_mod3_strings) + m_name + ")";
+				ret_s += "(" + combineStrings(m_mod3_strings) + name + ")";
 			else
-				ret_s += m_name;
+				ret_s += name;
 		}
 		else
-			ret_s += "(" + combineStrings(m_mod2_strings) + "*" + m_name;
+			ret_s += "(" + combineStrings(m_mod2_strings) + "*" + name;
 
 		ret_s += "(";
 		for (unsigned i = 0; i < m_funcParams.size(); i++)
@@ -10942,7 +12151,7 @@ std::string CTemplate::toHeaderString(int depth)
 		}
 	}
 	else if (m_nTemplateType == TEMPLATE_TYPE_CLASS)
-		ret_s += printTabs(depth) + getSemanticTypeName(m_data_type) + " " + m_name;
+		ret_s += printTabs(depth) + getSemanticTypeName(m_data_type) + " " + name;
 	else if (m_nTemplateType == TEMPLATE_TYPE_VAR)
 		ret_s += printTabs(depth) + combineStrings(m_mod_strings) + displaySourceTreeExtendedType(m_pFuncReturnExtendedTypeNode) + " " + m_varName.toString();
 	else
@@ -10972,21 +12181,22 @@ std::string CTemplate::toHeaderString(int depth)
 
 SymbolDefObject* CTemplate::findSymbol(const std::string& name, FindSymbolScope scope, FindSymbolMode mode)
 {
-	TRACE2("CTemplate::findSymbol %s in %s, scope=%d, mode=%d, ", name.c_str(), getDebugPath().c_str(), scope, mode);
+	TRACE2("CTemplate::findSymbol %s in %s, scope=%d, mode=%d, baseCount=%d, ", name.c_str(), getDebugPath().c_str(), scope, mode, m_classBaseTypeDefs.size());
 
 	SymbolDefObject* pSymbolObj = NULL;
 
-	if (scope == FIND_SYMBOL_SCOPE_PARENT && getTemplateType() == TEMPLATE_TYPE_CLASS && (name == m_name && m_template_name == name))
+	if (scope >= FIND_SYMBOL_SCOPE_SCOPE && getTemplateType() == TEMPLATE_TYPE_CLASS && (name == m_name && m_template_name == name))
 	{
-		TRACE2("FOUND %s IN %s\n", name.c_str(), getDebugPath().c_str());
+		TRACE("return root template, ");
 		if (isRootTemplate())
-			return getParent()->findSymbol(m_name, FIND_SYMBOL_SCOPE_LOCAL, mode); //&m_instanced_class; //
+			return getParent()->findSymbol(m_name, FIND_SYMBOL_SCOPE_LOCAL, mode);
 		if (isSpecializedTemplate())
 		{
-			pSymbolObj = ((CTemplate*)getParent())->findSpecializedTemplate(this);
-			if (pSymbolObj)
-				return pSymbolObj;
-			return getParent()->findSymbol(m_name, scope, mode); // handle back to root template
+			return getParent()->getParent()->findSymbol(m_name, FIND_SYMBOL_SCOPE_LOCAL, mode);
+			//pSymbolObj = ((CTemplate*)getParent())->findSpecializedTemplate(this);
+			//if (pSymbolObj)
+			//	return pSymbolObj;
+			//return getParent()->findSymbol(m_name, scope, mode); // handle back to root template
 		}
 		MY_ASSERT(false);
 	}
@@ -11005,7 +12215,7 @@ SymbolDefObject* CTemplate::findSymbol(const std::string& name, FindSymbolScope 
 				continue;
 
 			MY_ASSERT(cbtd.pBaseScope->getGoType() == GO_TYPE_CLASS || cbtd.pBaseScope->getGoType() == GO_TYPE_TEMPLATE);
-			pSymbolObj = cbtd.pBaseScope->findSymbol(name, scope, mode);
+			pSymbolObj = cbtd.pBaseScope->findSymbol(name, FIND_SYMBOL_SCOPE_SCOPE, mode);
 			if (pSymbolObj)
 				return pSymbolObj;
 		}
@@ -11095,11 +12305,9 @@ std::string CTemplate::toString(bool bDefine, int depth)
 	return ret_s;
 }
 
-CFunction::CFunction(CScope* pParent, const std::string& func_name, TypeDefPointer pFuncType, FlowType flow_type, CFuncDeclare* pFuncDeclare) : CScope(pParent)
+CFunction::CFunction(CScope* pParent, const std::string& func_name, TypeDefPointer pFuncType, FlowType flow_type, CFuncDeclare* pFuncDeclare) : CScope(pParent, func_name)
 {
 	m_func_type = pFuncType;
-	//m_display_name = func_name;
-	m_name = func_name;
 	m_flow_type = flow_type;
 	m_pFuncDeclare = pFuncDeclare;
 	m_cam_type = CAM_TYPE_NONE;
@@ -11128,7 +12336,7 @@ std::string CFunction::getDebugName()
 
 void CFunction::analyze(void* pBaseClassInitBlock, void* bracket_block, const SourceTreeNode* pRoot)
 {
-	TRACE2("START ANALYZING FUNC %s(0x%lx)\n", getDebugPath().c_str(), long(this));
+	TRACE2("\nSTART ANALYZING FUNC %s(0x%lx)\n", getDebugPath().c_str(), long(this));
 	if (pBaseClassInitBlock)
 	{
 	    //StringVector blockData = CGrammarAnalyzer::bracketBlockGetTokens(pBaseClassInitBlock);
@@ -11143,12 +12351,14 @@ void CFunction::analyze(void* pBaseClassInitBlock, void* bracket_block, const So
 		MY_ASSERT(ga.isEmpty());
 		for (unsigned i = 0; i < ret_v.size(); i++)
 		{
-			SourceTreeNode* pUserDefTypeOrMember, *pExpr2Node;
+			bool bClassNotMember;
+			TokenWithNamespace twn;
+			SourceTreeNode* pExpr2Node;
 
-			classBaseInitGetInfo(ret_v[i], pUserDefTypeOrMember, pExpr2Node);
+			classBaseInitGetInfo(ret_v[i], bClassNotMember, twn, pExpr2Node);
 			CExpr2* pExpr2 = new CExpr2(this);
 			pExpr2->analyze(pExpr2Node);
-			m_memberInitList.push_back(std::pair<TokenWithNamespace, CExpr2*>(userDefTypeGetInfo(pUserDefTypeOrMember), pExpr2));
+			m_memberInitList.push_back(std::pair<TokenWithNamespace, CExpr2*>(twn, pExpr2));
 		}
 	}
 
@@ -11157,7 +12367,7 @@ void CFunction::analyze(void* pBaseClassInitBlock, void* bracket_block, const So
 	while (SourceTreeNode* pNode = ga.getBlock())
 	{
 		ga.getRetBlockDefineIn(g_cur_file_stack, g_cur_line_no);
-		TRACE2("CFunction::%s, %s, ANALYZING LINE %s:%d\n", __FUNCTION__, getDebugPath().c_str(), g_cur_file_stack.back().c_str(), g_cur_line_no);
+		TRACE2("\nCFunction::%s, %s, ANALYZING LINE %s:%d\n", __FUNCTION__, getDebugPath().c_str(), g_cur_file_stack.back().c_str(), g_cur_line_no);
 		CStatement* pStatement = new CStatement(this);
 		pStatement->setDefLocation(g_cur_file_stack, g_cur_line_no);
 		addChild(pStatement);
@@ -11167,7 +12377,7 @@ void CFunction::analyze(void* pBaseClassInitBlock, void* bracket_block, const So
 		deleteSourceTreeNode(pNode);
 	}
 	MY_ASSERT(ga.isEmpty());
-	TRACE2("STOP ANALYZING FUNC %s(0x%lx)\n", getDebugPath().c_str(), long(this));
+	TRACE2("\nSTOP ANALYZING FUNC %s(0x%lx)\n", getDebugPath().c_str(), long(this));
 }
 
 SymbolDefObject* CFunction::findSymbol(const std::string& name, FindSymbolScope scope, FindSymbolMode mode)
@@ -11245,7 +12455,7 @@ std::string CFunction::toString(int depth)
 		ret_s += m_memberInitList[i].first.toString() + "(" + pExpr2->toString(0) + ")";
 	}
 	ret_s += "\n" + printTabs(depth) + "{\n";
-	for (int i = 0; i < getChildrenCount(); i++)
+	for (unsigned i = 0; i < getChildrenCount(); i++)
 	{
 		ret_s += ((CStatement*)getChildAt(i))->toString(depth + 1);
 	}
@@ -11254,7 +12464,7 @@ std::string CFunction::toString(int depth)
 	return ret_s;
 }
 
-CNamespace::CNamespace(CScope* pParent, bool bRealScope, bool bIsNamespace, const std::string& name) : CScope(pParent)
+CNamespace::CNamespace(CScope* pParent, bool bRealScope, bool bIsNamespace, const std::string& name) : CScope(pParent, name)
 {
 	TRACE2("Create CNamespace %s(%lx) under %s, bRealScope=%d, bNamespace=%d in %s:%d\n", name.c_str(), long(this), (pParent ? pParent->getDebugPath().c_str() : ""), bRealScope, bIsNamespace, (g_cur_file_stack.empty() ? "" : g_cur_file_stack.back().c_str()), g_cur_line_no);
 
@@ -11264,9 +12474,23 @@ CNamespace::CNamespace(CScope* pParent, bool bRealScope, bool bIsNamespace, cons
 	else
 		m_depth = ((CNamespace*)pParent)->getDepth() + 1;
 	m_bNamespace = bIsNamespace;
-	m_name = name;
 	setRealScope(bRealScope);
 	m_extern_modifier = 0;
+
+	if (g_write_doxygen_files)
+	{
+		if (!pParent)
+			m_doxygen_fname = "0_root";
+		else
+		{
+			m_doxygen_fname = "namespace_";
+			if (!name.empty())
+				m_doxygen_fname += name + "_";
+			m_doxygen_fname += ltoa((long)this);
+		}
+		m_doxygen_fname += ".html";
+		createDoxygenFile();
+	}
 }
 
 std::string CNamespace::getDebugName()
@@ -11341,7 +12565,7 @@ void CNamespace::analyzeFuncDef(const SourceTreeNode* pRoot)
 	type_def_ptr->setThrow(funcHeaderInfo.bThrow, funcHeaderInfo.pThrowTypeNode);
 	type_def_ptr->setDefLocation(g_cur_file_stack, g_cur_line_no);
 
-	SymbolDefObject* pSymbolObj = findSymbolEx(funcHeaderInfo.scope, false);
+	SymbolDefObject* pSymbolObj = pScope->findSymbol(funcHeaderInfo.name, FIND_SYMBOL_SCOPE_SCOPE, FIND_SYMBOL_MODE_FUNC);
 	CTemplate* pParentTemplate = NULL;
 	CFuncDeclare* pFuncDeclare = NULL;
 	if (pSymbolObj)
@@ -11517,6 +12741,15 @@ bool isStringVectorPrefix(const StringVector& prefix, const StringVector& v)
 	return true;
 }
 
+struct MergeFileBlock {
+	std::string	filePath;
+	bool bTransformed;
+	std::string content;
+	MergeFileBlock(const std::string& fp = "") : filePath(fp), bTransformed(false) {}
+};
+
+typedef std::vector<MergeFileBlock> MergeFileBlockList;
+
 std::string CNamespace::toString(int depth)
 {
 	std::string ret_s;// = std::string("# ") + ltoa(getDefLineNo()) + " \"" + getDefFileName() + "\"\n";
@@ -11538,48 +12771,74 @@ std::string CNamespace::toString(int depth)
 	}
 
 	enterScope(this);
-	std::string ret_s2, sub_include_file;
-	for (int i = 0; i < getChildrenCount(); i++)
+	std::string ret_s2;
+	MergeFileBlockList merge_list;
+	unsigned starting_depth = m_file_stack.size() - 1;
+	merge_list.push_back(MergeFileBlock(m_file_stack.back()));
+	for (unsigned i = 0; i < getChildrenCount() + 1; i++)
 	{
-		CScope* pObject = getChildAt(i);
-		//if (pObject->getGoType() == GO_TYPE_STATEMENT || pObject->getGoType() == GO_TYPE_FUNC)
-		//	ret_s += g_func_listener(pObject, depth2);
-		//else
-		std::string tmp_s = pObject->toString(depth2);
-		StringVector file_stack2 = pObject->getDefFileStack();
-		MY_ASSERT(isStringVectorPrefix(m_file_stack, file_stack2));
-
+		bool bTransformed;
+		std::string tmp_s;
+		StringVector file_stack2;
+		if (i < getChildrenCount())
+		{
+			CScope* pObject = getChildAt(i);
+			bTransformed = pObject->isTransformed();
+			tmp_s = pObject->toString(depth2);
+			file_stack2 = pObject->getDefFileStack();
+			MY_ASSERT(isStringVectorPrefix(m_file_stack, file_stack2));
+		}
+		else // force to cleanup remaining merge blocks
+		{
+			bTransformed = false;
+			file_stack2 = m_file_stack;
+		}
 #ifdef MERGE_INCLUDE_FILE
-		if (pObject->isTransformed() || m_file_stack.size() == file_stack2.size())
+		unsigned j;
+		for (j = 0; j < merge_list.size() && j < file_stack2.size() - starting_depth; j++)
 		{
-			ret_s += ret_s2 + tmp_s;
-			sub_include_file = ret_s2 = "";
+			if (merge_list[j].filePath != file_stack2[starting_depth + j])
+				break;
 		}
-		else if (file_stack2[m_file_stack.size()] != sub_include_file)
+		while (j < merge_list.size())
 		{
-			ret_s += ret_s2;
-			sub_include_file = file_stack2[m_file_stack.size()];
-			MY_ASSERT(!sub_include_file.empty());
-
-			ret_s2 = "#include \"" + sub_include_file + "\"\n";
-			//printf("include_file=%s\n", sub_include_file.c_str());
-			StringVector include_paths = get_sys_include_path();
-			for (StringVector::iterator it = include_paths.begin(); it != include_paths.end(); it++)
+			if (merge_list[merge_list.size() - 1].bTransformed)
 			{
-				//printf("checking=%s\n", it->c_str());
-				if (*it == sub_include_file.substr(0, it->size()))	
-				{
-					ret_s2 = "#include <" + sub_include_file.substr(it->size() + 1) + ">\n";
-					break;
-				}
+				merge_list[merge_list.size() - 2].bTransformed = true;
+				merge_list[merge_list.size() - 2].content += merge_list[merge_list.size() - 1].content;
 			}
+			else
+			{
+				std::string filePath = "\"" + merge_list[merge_list.size() - 1].filePath + "\"";
+				const StringVector& include_paths = get_sys_include_path();
+				for (StringVector::const_iterator it = include_paths.begin(); it != include_paths.end(); it++)
+				{
+					//printf("checking=%s\n", it->c_str());
+					if (*it == filePath.substr(1, it->size()))	
+					{
+						filePath = "<" + filePath.substr(1 + it->size() + 1, filePath.size() - it->size() - 3) + ">";
+						break;
+					}
+				}
+				merge_list[merge_list.size() - 2].content += "#include " + filePath + "\n";
+			}
+			merge_list.pop_back();
 		}
+		while (starting_depth + merge_list.size() < file_stack2.size())
+		{
+			merge_list.push_back(MergeFileBlock(file_stack2[merge_list.size()]));
+		}
+		if (bTransformed)
+			merge_list.back().bTransformed = true;
+		merge_list.back().content += tmp_s;
 #else
-		ret_s += ret_s2 + tmp_s;
+		ret_s += tmp_s;
 #endif
 	}
-	if (!sub_include_file.empty())
-		ret_s += ret_s2;
+#ifdef MERGE_INCLUDE_FILE
+	MY_ASSERT(merge_list.size() == 1);
+	ret_s = merge_list.back().content;
+#endif
 
 	if (m_pParent)
 		ret_s += printTabs(depth) + "}\n";
@@ -11702,7 +12961,7 @@ CNamespace* semanticAnalyzeFile(char* file_name, int argc, char* argv[])
 				file_stack.resize(g_cur_file_stack.size() - 1);
 				g_global_namespace.setDefLocation(file_stack, 1);
 			}
-			TRACE2("%s, ANALYZING LINE %s:%d\n", __FUNCTION__, g_cur_file_stack.back().c_str(), g_cur_line_no);
+			TRACE2("\n%s, ANALYZING LINE %s:%d\n", __FUNCTION__, g_cur_file_stack.back().c_str(), g_cur_line_no);
 			g_global_namespace.analyze(&ga, pNode);
 			deleteSourceTreeNode(pNode);
 		}
@@ -11718,9 +12977,9 @@ CNamespace* semanticAnalyzeFile(char* file_name, int argc, char* argv[])
 	return &g_global_namespace;
 }
 
-bool semanticCheckFunc(void* context, int mode, const SourceTreeNode* pRoot, const GrammarTempDefMap& tempDefMap)
+int semanticCheckFunc(void* context, const TokenWithNamespace& twn, const GrammarTempDefMap& tempDefMap)
 {
-	return ((CScope*)context)->onGrammarCheckFunc(mode, pRoot, tempDefMap);
+	return ((CScope*)context)->onGrammarCheckFunc(twn, tempDefMap);
 }
 
 bool semanticGrammarCallback(void* context, int mode, std::string& s)
@@ -11755,6 +13014,7 @@ void semanticInit()
 	g_type_def_void_ptr = TypeDefPointer(new CTypeDef(&g_global_namespace, "", g_type_def_void, 1));
 
 	g_type_def_func_void = TypeDefPointer(new CTypeDef(&g_global_namespace, "", SEMANTIC_TYPE_FUNC, g_type_def_void, 0));
+	g_type_def_void_func_ptr = TypeDefPointer(new CTypeDef(&g_global_namespace, "", SEMANTIC_TYPE_FUNC, g_type_def_void, 1));
 
 	g_global_symbol_obj.type = GO_TYPE_NAMESPACE;
 	g_global_symbol_obj.children.push_back(&g_global_namespace);

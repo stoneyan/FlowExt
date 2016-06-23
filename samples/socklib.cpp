@@ -250,7 +250,7 @@ DWORD get_local_ip(DWORD dwServer)
    return 0;
 }
 
-VSOCK_ADDR resolve_address(char* lpszSocketAddress, WORD nSocketPort)
+VSOCK_ADDR resolve_address(const char* lpszSocketAddress, WORD nSocketPort)
 {
 	memset(&g_sock_temp_sockAddr, 0, sizeof(g_sock_temp_sockAddr));
 

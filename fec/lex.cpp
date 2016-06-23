@@ -128,9 +128,9 @@ bool file_exists(const char* fname)
     return false;
 }
 
-StringVector get_sys_include_path()
+const StringVector& get_sys_include_path()
 {
-	StringVector s_sys_paths;
+	static StringVector s_sys_paths;
 #ifdef _WIN32
 	if (s_sys_paths.empty())
 	{
@@ -462,6 +462,32 @@ long CLexer::calcValue(const char* str)
     int n = 0;
     int base = 10;
 
+    if (str[0] == '\'')
+	{
+		if (str[1] == '\\')
+		{
+			switch (str[2])
+			{
+			case '0':
+				return '\0';
+			case 't':
+				return '\t';
+			case 'r':
+				return '\r';
+			case 'n':
+				return '\n';
+			case '\'':
+				return '\'';
+			case '\\':
+				return '\\';
+			default:
+				MY_ASSERT(false);
+			}
+		}
+		MY_ASSERT(str[2] == '\'');
+		return str[1];
+	}
+
     if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))
     {
         str += 2;
@@ -481,7 +507,7 @@ long CLexer::calcValue(const char* str)
                 break;
             }
             else
-                fatal_error("Unrecognized value string %s", str);
+                fatal_error("Cannot calculate '%s'", str);
         }
         else
         {
@@ -529,12 +555,17 @@ bool CLexer::is_empty()
         return (m_file_list.size() == 1 && m_file_list[0].extra_data.empty() && !*m_file_list[0].content_cur);
     }
 
-    return m_token_offset >= m_tokens.size();
+    return m_token_offset >= (int)m_tokens.size();
 }
 
 bool CLexer::isSymbol(char c)
 {
     return (!isalnum(c) && !isspace(c));
+}
+
+bool CLexer::isChar(const std::string& str)
+{
+	return str[0] == '\'';
 }
 
 bool CLexer::isNumber(const std::string& str)
@@ -547,6 +578,11 @@ bool CLexer::isNumber(const std::string& str)
         return true;
 
     return false;
+}
+
+bool CLexer::isString(const std::string& str) // "..." or L"..."
+{
+	return str.at(0) == '"' || str.at(0) == 'L' && str.at(1) == '"';
 }
 
 bool CLexer::isIdentifier(const std::string& str)
@@ -614,7 +650,7 @@ StringVector CLexer::get_file_stack()
 std::string CLexer::file_stack_2_string(const StringVector& file_stack, int line_no)
 {
     std::string s = "//";
-    for (int i = 0; i < file_stack.size(); i++)
+    for (int i = 0; i < (int)file_stack.size(); i++)
     {
         if (i > 0)
             s += "|";
@@ -749,6 +785,14 @@ std::string CLexer::read_word2(bool bCrossNewLine)
                 return ret_s;
         } while (isspace(c));
 
+		if (c == 'L')
+        {
+            if (peek_char() == '"' || peek_char() == '\'')
+			{
+				ret_s += c;
+                read_char(c);
+			}
+		}
         if (c == '"' || c == '\'')
         {
             int start_line = get_cur_line_no();
@@ -2589,10 +2633,10 @@ std::string CLexer::read_word(bool bFromExternal)
 			//m_tokens.push_back(whole_line);
 			//return "#";
 
+			if (file_path == "<built-in>" || file_path == "<command-line>")
+				continue;
 			if (line_no == 1)
 			{
-				if (file_path == "<built-in>" || file_path == "<command-line>")
-					continue;
 				if (m_file_list[0].row == 1)
 				{
 					if (m_file_list[0].file_name != file_path)

@@ -21,6 +21,9 @@
  *     __lexicographical_compare<_BoolType>::
  *     __lc(_II1 __first1, _II1 __last1, _II2 __first2, _II2 __last2);
  *
+ * in winnt.h
+ * __pragma(warning(push)) __pragma(warning(disable : 4548)) do {;} while((0,0) __pragma(warning(pop)) );
+ *
  * we don't want to check type in func_param because we cannot check that in a function header of a template define outside the template
  *
  * &V add as a var
@@ -39,33 +42,31 @@ const char* g_grammar_str = "\
 	const				: 'const' | '__const'; \\\n\
 	operator			: '+' | '-' | '*' | '/' | '=' | '<' | '>' | '+=' | '-=' | '*=' | '/=' | '<<' | '>>' | '<<=' | '>>=' | '==' | '!=' | '<=' | '>=' | '++' | '--' | '%' | '&' | '^' \\\n\
 						| '!' | '|' | '~' | '&=' | '^=' | '|=' | '&&' | '||' | '%=' | '(' ')' | '[' ']' | '->' | 'new' | 'new' '[' ']' | 'delete' | 'delete' '[' ']' | ',' | extended_type;  \\\n\
-	scope               : ?['::'] *[ ?['template'] token ?[ < *[(extended_type_var|func_type|expr), '>,'] > ] '::'] ; \\\n\
-	hard_scope          : ?['::'] +[ ?['template'] token ?[ < *[(extended_type_var|func_type|expr), '>,'] > ] '::'] ; \\\n\
-	token_with_namespace: scope token ?[ < *[(extended_type_var|func_type|expr), '>,'] > ]; \\\n\
-	twn_nocheck         : scope token ?[ < *[(extended_type_var|func_type|expr), '>,'] > ]; \\\n\
-	user_def_type		: scope ?['template'] token ?[ < *[(extended_type_var|func_type|expr), '>,'] > ]; \\\n\
-  user_def_type_no_check: scope ?['template'] token ?[ < *[(extended_type_var|func_type|expr), '>,'] > ]; \\\n\
-	basic_type			: 'void' | 'va_list' | '__builtin_va_list' | +[('signed' | 'unsigned' | 'char' | 'short' | 'int' | 'long' | 'float' | 'double' | '__int128' | 'bool' | 'wchar_t' | '__w64' | '__int64')]; \\\n\
+	scope               : ?['::'] *[ ?[('template' | 'typename')] token ?[ '<' *[(extended_type_var|func_type|expr), ','] '>' ] '::'] ; \\\n\
+	hard_scope          : ?['::'] +[ ?[('template' | 'typename')] token ?[ '<' *[(extended_type_var|func_type|expr), ','] '>' ] '::'] ; \\\n\
+	token_with_namespace: scope token ?[ '<' *[(extended_type_var|func_type|expr), ','] '>' ]; \\\n\
+	user_def_type		: scope ?[('template' | 'typename')] token ?[ '<' *[(extended_type_var|func_type|expr), ','] '>' ]; \\\n\
+  user_def_type_no_check: scope ?[('template' | 'typename')] token ?[ '<' *[(extended_type_var|func_type|expr), ','] '>' ]; \\\n\
+    basic_type          : 'void' | 'va_list' | '__builtin_va_list' | +[('signed' | 'unsigned' | 'char' | 'short' | 'int' | 'long' | 'float' | 'double' | '__int8' | '__int16' | '__int32' | '__int64' | '__int128' | 'bool' | 'wchar_t' | '__w64')] | '__nullptr'; \\\n\
 	class_struct_union  : 'union' | 'struct' | 'class' | 'enum' ; \\\n\
-	type				: *[data_type_modifier] ( basic_type | (class_struct_union | 'typename') user_def_type_no_check | user_def_type | '__typeof' '(' twn_nocheck ')' ) *[data_type_modifier] ?[ *[?[const] '*'] ?[const] ?['&'] hard_scope '*'] ;\\\n\
-	type_nocheck		: *[data_type_modifier] ( basic_type | ?[(class_struct_union | 'typename')] user_def_type_no_check ) *[data_type_modifier] ?[ *[?[const] '*'] ?[const] ?['&'] hard_scope '*'] ;\\\n\
-	extended_type		: type *[?[const] '*' ?['__ptr64'] ] *[data_type_modifier] ?['&']; \\\n\
+	type				: *[data_type_modifier] ( basic_type | (class_struct_union | 'typename') ?[common_modifier] user_def_type_no_check | user_def_type | ('__typeof' | '__typeof__') '(' expr ')' ) *[data_type_modifier] ?[ *[?[const] '*'] ?[const] ?['&'] hard_scope '*'] ;\\\n\
+	extended_type		: type *[ '*' *[data_type_modifier] ] *[('&'|'&&')]; \\\n\
 	extended_type_var   : extended_type *['[' ?[expr] ']']; \\\n\
    extended_or_func_type: extended_type | func_type; \\\n\
 	flow_modifier		: 'flow_root' | 'flow'; \\\n\
-	decl_var			: *[?[const] '*' ?['__ptr64']] ?[const] ?['__restrict'] ?['('] ?[('&' | '*')] ?[scope &V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']']; \\\n\
-	decl_var2   		: *[?[const] '*' ?['__ptr64']] ?[const] ?['__restrict'] ?['('] ?[('&' | '*')] ?[scope &V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']']; \\\n\
+	decl_var			: *['*' *[data_type_modifier]] ?['__restrict'] ?['('] *[('*' | '&' | '&&')] ?[scope &V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']']; \\\n\
 	attribute			: '__attribute__' '(' '(' *[any_token] ')' ')'; \\\n\
 	declspec			: '__declspec' '(' *[any_token] ')'; \\\n\
-	common_modifier		: declspec | attribute | 'static' | 'inline' | '__inline' | '__forceinline' ; \\\n\
+	__pragma			: '__pragma' '(' *[any_token] ')'; \\\n\
+	common_modifier		: declspec | attribute | '[' *[any_token] ']' ; \\\n\
 	ext_modifier		: '__extension__' | 'extern' | 'extern' '\"C\"' | 'extern' '\"C++\"' | common_modifier; \\\n\
-	func_modifier		: ext_modifier | 'virtual' | 'explicit' | 'friend' | flow_modifier ; \\\n\
-	func_modifier2		: common_modifier | '__restrict' | '_cdecl' | '__cdecl' | '__thiscall' | '__stdcall' | '__fastcall' ; \\\n\
+	func_modifier		: ext_modifier | 'virtual' | 'explicit' | 'friend' | flow_modifier | 'static' | 'inline' | '__inline' | '__forceinline'; \\\n\
+	func_modifier2		: common_modifier | '__restrict' | '_cdecl' | '__cdecl' | '__thiscall' | '__stdcall' | '__fastcall' | 'static' ; \\\n\
 	member_modifier		: ext_modifier | 'mutable' | 'static' ; \\\n\
-    data_type_modifier  : const | 'volatile' | '__complex__' ; \\\n\
-    enum_items           : *[ ?[&V token ?['=' expr ] ], ','] ; \\\n\
-	enum_def			: 'enum' ?[token] ^O '{' %[enum_items, '}'] '}'; \\\n\
-	union_def			: 'union' ?[token] ^O '{' %[defs, '}'] '}'; \\\n\
+    data_type_modifier  : const | 'volatile' | '__complex__' | '__ptr32' | '__ptr64' | '__unaligned'; \\\n\
+    enum_items          : *[ ?[&V token ?['=' expr ] ], ','] ; \\\n\
+	enum_def			: 'enum' *[common_modifier] ?[token] ^O '{' %[enum_items, '}'] '}'; \\\n\
+	union_def			: 'union' *[common_modifier] ?[token] ^O '{' %[defs, '}'] '}'; \\\n\
 	class_access_modifier: 'public' | 'protected' | 'private' ; \\\n\
 	class_def_body		: ^O class_access_modifier ':' \\\n\
 						| 'friend' ?[class_struct_union] user_def_type ^O ';' \\\n\
@@ -74,9 +75,10 @@ const char* g_grammar_str = "\
 	base_class_defs		: +[ ?['virtual'] ?[class_access_modifier] ?['virtual'] user_def_type, '>,'] ; \\\n\
 	class_def			: ('class' | 'struct') *[common_modifier] scope ?[token] ?[ ':' %[base_class_defs, '{'] ] ^O '{' %[class_def_body, '}'] '}' ; \\\n\
 	super_type			: enum_def | union_def | class_def ; \\\n\
-    builtin_type_funcs  : '__alignof__' | '__is_abstract' | '__is_class' | '__is_empty' | '__is_enum' | '__is_pod' | '__has_nothrow_assign' | '__has_nothrow_copy' | '__has_trivial_assign' | '__has_trivial_copy' | '__has_trivial_destructor' ; \\\n\
+    builtin_type_funcs  : '__alignof__' | '__is_abstract' | '__is_class' | '__is_union' | '__is_empty' | '__is_enum' | '__is_pod' | '__is_polymorphic' | '__has_nothrow_assign' | '__has_nothrow_constructor' | '__has_nothrow_copy' | '__has_trivial_assign' | '__has_trivial_copy' | '__has_trivial_constructor' | '__has_trivial_destructor' | '__has_virtual_destructor' ; \\\n\
+    builtin_type_funcs2 : '__is_base_of' | '__is_convertible_to' ; \\\n\
 	expr				:@1 expr '.' scope (?['~'] token | 'operator' operator) |@1 expr '->' scope (?['~'] token | 'operator' operator) \\\n\
-						|@2 expr '(' *[expr, '!,'] ')' |@2 scope 'operator' operator '(' ?[expr] ')' |@2 expr '[' expr ']' \\\n\
+						|@2 expr '(' *[expr, '!,'] ')' |@2 scope 'operator' operator '(' expr2 ')' |@2 expr '[' expr ']' \\\n\
 						|@3 expr '++' |@3 expr '--' |@3 '++' expr |@3 '--' expr |@3 '+' expr |@3 '-' expr |@3 '!' expr |@3 '~' expr |@3 '(' extended_or_func_type ')' expr \\\n\
 						|@3 '*' expr |@3 '&' expr |@3 'sizeof' '(' (extended_type_var | func_type | expr) ')' \\\n\
 						|@3 scope 'new' ?( extended_type_var ) |@3 scope 'new' user_def_type '(' expr2 ')' |@3 scope 'new' '(' expr ')' ?[ user_def_type ?[ '(' expr2 ')' ] ] \\\n\
@@ -88,7 +90,7 @@ const char* g_grammar_str = "\
 						|@10 expr '&' expr	|@11 expr '^' expr |@12 expr '|' expr |@13 expr '&&' expr |@14 expr '||' expr  \\\n\
 						|@15 expr '?' expr ':' expr |@15 expr '=' expr |@15 expr '=' '{' expr2 '}' |@15 expr '+=' expr |@15 expr '-=' expr |@15 expr '*=' expr |@15 expr '/=' expr |@15 expr '%=' expr |@15 expr '<<=' expr |@15 expr '>>=' expr |@15 expr '&=' expr |@15 expr '^=' expr |@15 expr '|=' expr \\\n\
 						|@16 'throw' ?[expr] | const_value | ?[('__real__' | '__imag__')] token_with_namespace | type '(' expr2 ')' | '(' expr2 ')' \\\n\
-						| builtin_type_funcs '(' type ')' | '__is_base_of' '(' type ',' type ')' \\\n\
+						| builtin_type_funcs '(' type ')' | builtin_type_funcs2 '(' type ',' type ')' \\\n\
 						| 'const_cast' '<' extended_or_func_type '>' '(' expr ')' | 'static_cast' '<' extended_or_func_type '>' '(' expr ')' | 'dynamic_cast' '<' extended_or_func_type '>' '(' expr ')' | 'reinterpret_cast' '<' extended_or_func_type '>' '(' expr ')' | '__extension__' expr \\\n\
 						; \\\n\
 	expr2			    : *[expr, '!,']; \\\n\
@@ -96,42 +98,45 @@ const char* g_grammar_str = "\
 	decl_c_var		    : ?['__restrict'] decl_var ?[ '=' ( expr | '{' expr2 '}' ) ] ; \\\n\
 	decl_c_obj_var	    : decl_c_var | decl_obj_var ; \\\n\
     expr_or_decl_var    : expr2 | type +[decl_c_obj_var, ','] ; \\\n\
-	func_param          : type_nocheck *[func_modifier2] ?[const] ?[ decl_var ?[ '=' %[expr, ',|)'] ] ?[attribute] ] | func_type ;  \\\n\
+	func_param          : type *[func_modifier2] ?[const] ?[ decl_var ?[ '=' %[expr, ',|)'] ] ?[attribute] ] | func_type \\\n\
+	                    | ?['const'] token ('*' | '&') ?[token];  \\\n\
 	func_params         : *[func_param, '>,'] ?[('...' | ',' '...')] ;  \\\n\
-	func_type           : extended_type ?( ?[ ?( *[func_modifier2] scope +['*'] ?[token] ) ] '(' func_params ')' *[data_type_modifier] ) ; \\\n\
+	func_type           : extended_type ?( ?[ ?( *[func_modifier2] scope +[('*' | '^')] ?[token ?['(' func_params ')']] ) ] '(' func_params ')' *[data_type_modifier] ) ; \\\n\
 	func_header         : *[func_modifier] ?[extended_type] *[func_modifier2] ?( ?( *[func_modifier2] scope ( ?['~'] token | 'operator' operator) ?['<' *[(extended_type_var|func_type|expr), ','] '>'] ) '(' %[func_params, ')'] ')' ) *[data_type_modifier] ?['throw' '(' ?[(type | '...')] ')'] ; \\\n\
-    class_base_init     : user_def_type_no_check '(' expr2 ')' ; \\\n\
+	class_base_init     : (user_def_type | token) '(' expr2 ')'; \\\n\
     class_base_inits    : *[class_base_init, ','] ; \\\n\
-	template_type_defs  : +[template_type_def, '>,'] ; \\\n\
-	template_type_def   : ?['template' '<' +[template_type_def, '>,'] '>'] ('class' | 'typename') ?[&T token ?['=' (?['typename' ^N] extended_type_var | func_type )] ] | type ?[&V token] ?['=' expr]; \\\n\
+	template_type_def   : ?['template' '<' +[template_type_def, ','] '>'] ('class' | 'typename') ?[&T token ?['=' (?['typename' ^N] extended_type_var | func_type )] ] | type ?[&V token] ?['=' expr]; \\\n\
+	template_type_defs  : +[template_type_def, ','] ; \\\n\
     template_body       : func_header (';' | ?[ ':' %[class_base_inits, '{'] ] ^O '{' %[statement, '}'] '}' ) \\\n\
-						| class_struct_union ?[attribute] scope ^O token ?[ < +[(extended_type_var | func_type | expr), '>,'] > ] ?[ ?[ ':' %[base_class_defs, '{'] ] ^O '{' %[class_def_body, '}'] '}' ] ?[attribute] ';' \\\n\
+						| class_struct_union ?[attribute] scope ^O token ?[ '<' +[(extended_type_var | func_type | expr), ','] '>' ] ?[ ?[ ':' %[base_class_defs, '{'] ] ^O '{' %[class_def_body, '}'] '}' ] ?[attribute] ';' \\\n\
 						| *[member_modifier] func_type *['[' expr ']'] ^O ';' \\\n\
                         | ^O 'friend' class_struct_union scope token ';' \\\n\
                         | *[member_modifier] ^O extended_type scope %[decl_c_obj_var, ';'] ';' \\\n\
                         ; \\\n\
 	defs				: ^O ';' \\\n\
-						| ^O '__pragma' '(' *[any_token] ')' ';' \\\n\
+						| ^O __pragma ';' \\\n\
 						| ^O '#' any_token \\\n\
                         | class_struct_union *[common_modifier] token ^O ';' \\\n\
 						| ^O 'using' ?['namespace'] scope (token | 'operator' operator) ';' \\\n\
-						| *[ext_modifier] ^O 'typedef' (type +[decl_var, ','] ?[attribute] ^O ';' | \\\n\
-						                                   ^O super_type $[def_var_tail, ';'] | \\\n\
+						| *[ext_modifier] ^O 'typedef' $[ *[common_modifier] (type +[decl_var, ','] ?[attribute] ^O ';' | \\\n\
+						                                   ^O super_type def_var_tail | \\\n\
                                                            extended_type '(' scope '*' token ')' ^O ';' | \\\n\
 														   extended_type ?( *[func_modifier2] token ) '(' func_params ')' ^O ';' | \\\n\
                                                            func_type ^O ';' | \\\n\
-                                                           ^O '__typeof__' '(' (extended_type | expr) ')' token ';' ) \\\n\
+                                                           ^O '__typeof__' '(' (extended_type | expr) ')' token ';' | \\\n\
+														   ^O 'decltype' '(' (extended_type | expr) ')' token ';' ), ';'] \\\n\
 						| $[ *[member_modifier] type def_var_tail, ';'] \\\n\
 						| $[ *[member_modifier] super_type def_var_tail, ';'] \\\n\
-						| func_header ?['__asm' '(' const_value ')'] *[attribute] (?['=' '0'] ^O ';' | ?[ ':' %[class_base_inits, '{'] ] ^O '{' %[statement, '}'] '}') \\\n\
-						| *[member_modifier] func_type *['[' expr ']'] ^O ';' \\\n\
+						| $[ func_header ?['__asm' '(' const_value ')'] *[attribute] (?['=' '0'] ^O ';' | ?[ ':' %[class_base_inits, '{'] ] ^O '{' %[statement, '}'] '}'), '};'] \\\n\
+						| $[ *[member_modifier] func_type *['[' expr ']'] ^O ';', ';'] \\\n\
 						| ?[ext_modifier] +['template' < %[template_type_defs] > ] ( ^O class_struct_union extra_block2 | extra_block ) \\\n\
-                        | ext_modifier 'template' (('class' | 'struct') user_def_type | func_header ) ';' \\\n\
-						| ext_modifier 'template' extended_type scope token < *[(extended_type_var | func_type | expr), '>,'] > '(' %[func_params, ')'] ')' ?[const] ';' \\\n\
+						| $[ ext_modifier 'template' (('class' | 'struct') user_def_type | func_header ) ';', ';'] \\\n\
+						| $[ ext_modifier 'template' extended_type scope token '<' *[(extended_type_var | func_type | expr), ','] '>' '(' %[func_params, ')'] ')' ?[const] ';', ';'] \\\n\
 						; \\\n\
 	def_var_tail        : *[decl_c_obj_var, ','] ?[attribute] ?['__asm' '(' const_value ')'] ';' ; \\\n\
 	switch_body			: 'case' const_value ':' *[statement] | 'default' ':' *[statement] ; \\\n\
 	else_statement		: 'else' statement ;\\\n\
+	do_while_expr		: $['while' '(' expr ?[__pragma] ')' ';', ';'] ;\\\n\
 	catch_statement		: 'catch' '(' func_params ')' statement ; \\\n\
    flow_catch_statement : 'flow_catch' '(' expr ',' expr ')' statement ; \\\n\
 	statement			: ^O 'break' ';'						\\\n\
@@ -148,6 +153,7 @@ const char* g_grammar_str = "\
 						| ^O 'flow_fork' statement \\\n\
 						| ^O 'flow_try' statement \\\n\
 						| ^O '__asm' '{' %[token, '}'] '}' \\\n\
+						| ^O '__pragma' '(' *[any_token] ')' \\\n\
 						| ?[expr '='] 'flow_new' statement \\\n\
                         | expr2 ';' \\\n\
 						| defs \\\n\
@@ -521,7 +527,7 @@ std::string attributeModifierGetString(const SourceTreeNode* pRoot)
 	return ret_s;
 }
 
-//	declspec | attribute | 'static' | 'inline' | '__inline' | '__forceinline' ;
+//	declspec | attribute | '[' *[any_modifier] ']';
 std::string commonModifierGetBit(const SourceTreeNode* pRoot)
 {
 	std::string ret_s;
@@ -538,13 +544,12 @@ std::string commonModifierGetBit(const SourceTreeNode* pRoot)
 		ret_s = attributeModifierGetString(pRoot->pChild->pChild);
 		break;
 	case 2:
-		return "static ";
-    case 3:
-        return "inline ";
-    case 4:
-        return "__inline ";
-	case 5:
-		return "__forceinline ";
+		ret_s = "[";
+		pRoot = pRoot->pChild;
+		for (pRoot = pRoot->pChild; pRoot; pRoot = pRoot->pNext)
+			ret_s += pRoot->pChild->value + " ";
+		ret_s += "] ";
+		break;
 	default:
 		MY_ASSERT(false);
 	}
@@ -573,7 +578,7 @@ std::string extModifierGetBit(const SourceTreeNode* pRoot)
 	return "";
 }
 
-//	ext_modifier | 'virtual' | 'explicit' | 'friend' | flow_modifier ;
+//	ext_modifier | 'virtual' | 'explicit' | 'friend' | flow_modifier | 'static' | 'inline' | '__inline' | '__forceinline' ;
 std::string funcModifierGetBit(const SourceTreeNode* pRoot)
 {
 	switch (pRoot->param)
@@ -589,6 +594,14 @@ std::string funcModifierGetBit(const SourceTreeNode* pRoot)
 	case 4:
 		pRoot = pRoot->pChild->pChild;
 		return pRoot->param == 0 ? "flow_root " : "flow ";
+	case 5:
+		return "static ";
+    case 6:
+        return "inline ";
+    case 7:
+        return "__inline ";
+	case 8:
+		return "__forceinline ";
 	default:
 		MY_ASSERT(false);
 	}
@@ -614,6 +627,8 @@ std::string funcModifier2GetBit(const SourceTreeNode* pRoot)
 		return "__stdcall ";
 	case 6:
 		return "__fastcall ";
+	case 7:
+		return "static ";
 	default:
 		MY_ASSERT(false);
 	}
@@ -638,7 +653,7 @@ std::string memberModifierGetBit(const SourceTreeNode* pRoot)
 	return "";
 }
 
-//data_type_modifier    : const | 'volatile';
+//data_type_modifier    : const | 'volatile' | '__complex__' | '__ptr64';
 std::string dataTypeModifierGetBit(const SourceTreeNode* pRoot)
 {
     switch (pRoot->param)
@@ -649,10 +664,64 @@ std::string dataTypeModifierGetBit(const SourceTreeNode* pRoot)
         return "volatile ";
     case 2:
         return "__complex__ ";
+    case 3:
+        return "__ptr32 ";
+    case 4:
+        return "__ptr64 ";
+    case 5:
+        return "__unaligned ";
     default:
         MY_ASSERT(false);
     }
     return "";
+}
+
+SourceTreeNode* createDataTypeModifier(const std::string& mod)
+{
+	int param;
+	if (mod == "const")
+		param = 0;
+	else if (mod == "volatile")
+		param = 1;
+	else if (mod == "__complex__")
+		param = 2;
+	else if (mod == "__ptr32")
+		param = 3;
+	else if (mod == "__ptr64")
+		param = 4;
+	else if (mod == "__unaligned")
+		param = 5;
+	else
+		MY_ASSERT(false);
+
+	SourceTreeNode* pNode = createEmptyNode();
+	pNode->param = param;
+	return pNode;
+}
+
+SourceTreeNode* createDataTypeModifiers(const StringVector& mods)
+{
+	SourceTreeNode* pRoot = createEmptyNode();
+	pRoot->param = mods.size();
+
+	SourceTreeNode* pNode = NULL;
+	for (unsigned i = 0; i < mods.size(); i++)
+	{
+		if (i == 0)
+		{
+			pNode = createEmptyNode();
+			pRoot->pChild = pNode;
+		}
+		else
+		{
+			pNode->pNext = createEmptyNode();
+			pNode = pNode->pNext;
+		}
+		pNode->param = i;
+		pNode->pChild = createDataTypeModifier(mods[i]);
+	}
+
+	return pRoot;
 }
 
 //operator            : '+' | '-' | '*' | '/' | '=' | '<' | '>' | '+=' | '-=' | '*=' | '/=' | '<<' | '>>' | '<<=' | '>>=' | '==' | '!=' | '<=' | '>=' | '++' | '--' | '%' | '&' | '^' \\\n\
@@ -798,10 +867,12 @@ CSUType csuGetType(const SourceTreeNode* pRoot)
     return CSU_TYPE_NONE;
 }
 
-//scope               : ?['::'] *[ ?['template'] token ?[ < *[(extended_type|func_type|expr), ','] > ] '::'] ;
+//scope               : ?['::'] *[ ?['template'] token ?[ '<' *[(extended_type|func_type|expr), ','] '>' ] '::'] ;
 TokenWithNamespace scopeGetInfo(const SourceTreeNode* pRoot)
 {
     TokenWithNamespace twn;
+	if (!pRoot)
+		return twn;
 
     twn.setHasRootSign(pRoot->param != 0);
     pRoot = pRoot->pNext;
@@ -870,7 +941,7 @@ SourceTreeNode* scopeCreate(const TokenWithNamespace& twn)
             pNode3 = pNode3->pChild;
             pNode3->param = twn.getTemplateParamCount(i);
 
-            for (int j = 0; j < twn.getTemplateParamCount(i); j++)
+            for (unsigned j = 0; j < twn.getTemplateParamCount(i); j++)
             {
                 if (j == 0)
                     pNode3 = pNode3->pChild = createEmptyNode();
@@ -906,7 +977,7 @@ void scopeChangeTokenName(SourceTreeNode* pRoot, int idx, const std::string& new
     pRoot->value = newName;
 }
 
-//token_with_namespace: scope token ?[ < *[(extended_type|func_type|expr), ','] > ] ;
+//token_with_namespace: scope token ?[ '<' *[(extended_type|func_type|expr), ','] '>' ] ;
 TokenWithNamespace tokenWithNamespaceGetInfo(const SourceTreeNode* pRoot)
 {
     TokenWithNamespace twn = scopeGetInfo(pRoot->pChild);
@@ -933,7 +1004,7 @@ void tokenWithNamespaceChangeTokenName(SourceTreeNode* pRoot, int idx, const std
     TokenWithNamespace twn = scopeGetInfo(pRoot->pChild);
     MY_ASSERT(idx >= 0 && idx <= twn.getDepth());
 
-    if (idx < twn.getDepth())
+    if (idx < (int)twn.getDepth())
         scopeChangeTokenName(pRoot->pChild, idx, newName);
     else
         pRoot->pNext->value = newName;
@@ -1006,7 +1077,7 @@ void userDefTypeChangeTokenName(SourceTreeNode* pRoot, int idx, const std::strin
     TokenWithNamespace twn = scopeGetInfo(pRoot->pChild);
     MY_ASSERT(idx >= 0 && idx <= twn.getDepth());
 
-    if (idx < twn.getDepth())
+    if (idx < (int)twn.getDepth())
         scopeChangeTokenName(pRoot->pChild, idx, newName);
 	else
 		pRoot->pNext->pNext->value = newName;
@@ -1060,21 +1131,29 @@ StringVector basicTypeGetInfo(const SourceTreeNode* pRoot)
 			case 7:
 				name.push_back("double");
 				break;
-            case 8:
-                name.push_back("__int128");
-                break;
+			case 8:
+				name.push_back("__int8");
+				break;
 			case 9:
-				name.push_back("bool");
+				name.push_back("__int16");
 				break;
 			case 10:
-				name.push_back("wchar_t");
+				name.push_back("__int32");
 				break;
 			case 11:
-				name.push_back("__w64");
-				break;
-			case 12:
 				name.push_back("__int64");
 				break;
+            case 12:
+                name.push_back("__int128");
+                break;
+			case 13:
+				name.push_back("bool");
+				break;
+			case 14:
+				name.push_back("wchar_t");
+				break;
+			case 15:
+				name.push_back("__w64");
 				break;
 			default:
 				MY_ASSERT(false);
@@ -1083,11 +1162,19 @@ StringVector basicTypeGetInfo(const SourceTreeNode* pRoot)
 		MY_ASSERT(name.size() > 0);
 		break;
 	} // of case 3
+	case 4:
+		name.push_back("__nullptr");
+		break;
 	default:
 		MY_ASSERT(false);
 	} // end of switch
 
 	return name;
+}
+
+bool basicTypeIsNumType(const SourceTreeNode* pRoot)
+{
+	return pRoot->param == 3;
 }
 
 //basic_type          : 'void' | 'va_list' | '__builtin_va_list' | +[('signed' | 'unsigned' | 'char' | 'short' | 'int' | 'long' | 'float' | 'double' | '__int128' | 'bool' | 'wchar_t')];
@@ -1176,7 +1263,7 @@ SourceTreeNode* typeTypeOfGetInfo(const SourceTreeNode* pRoot)
 {
     MY_ASSERT(typeGetType(pRoot) == BASICTYPE_TYPE_TYPEOF);
 
-    pRoot = pRoot->pNext->pChild->pChild;
+    pRoot = pRoot->pNext->pChild->pChild->pNext;
 
     return pRoot->pChild;
 }
@@ -1214,10 +1301,15 @@ CSUType typeUserDefinedGetInfo(const SourceTreeNode* pRoot, bool& bHasTypename, 
 		    csu_type = csuGetType(pRoot->pChild->pChild->pChild);
 		else
 		    bHasTypename = true;
+
+		// common modifier
+		pRoot = pRoot->pNext;
+
 		pRoot = pRoot->pNext;
 	}
 	else
 	{
+		MY_ASSERT(pRoot->param == 2);
 		pRoot = pRoot->pChild;
 	}
 
@@ -1292,6 +1384,10 @@ SourceTreeNode* typeCreateByUserDefined(CSUType csu_type, SourceTreeNode* pChild
         pNode = createEmptyNode();
         pNode->pChild = pRoot;
         pRoot = pNode;
+
+		//?[common_modifier]
+        pRoot->pNext = createEmptyNode();
+        pRoot = pRoot->pNext;
 
         pNode = createEmptyNode();
         pNode->pChild = pChild;
@@ -1368,7 +1464,54 @@ SourceTreeNode* typeCreateDmp(SourceTreeNode* pExtendedTypeNode, TokenWithNamesp
     return pRoot;
 }
 
-//	type				: *[data_type_modifier] ( basic_type | (class_struct_union | 'typename') user_def_type_no_check | user_def_type | '__typeof' '(' twn_nocheck ')' ) *[data_type_modifier] ?[ *[?[const] '*'] ?[const] ?['&'] hard_scope '*'] ;
+void typeAddDataTypeModifier(SourceTreeNode* pRoot, const std::string& mod_s)
+{
+	SourceTreeNode* new_node = createEmptyNode();
+
+	if (mod_s == "const")
+	{
+		new_node->param = 0;
+		new_node->pChild = createEmptyNode();
+		new_node->pChild->pChild = createEmptyNode();
+	}
+	else if (mod_s == "volatile")
+		new_node->param = 1;
+	else if (mod_s == "__complex__")
+		new_node->param = 2;
+	else
+	{
+		MY_ASSERT(false);
+	}
+
+	if (!pRoot->pChild)
+	{
+		pRoot->pChild = createEmptyNode();
+		pRoot->pChild->pChild = new_node;
+	}
+	else
+	{
+		SourceTreeNode* pChild = pRoot->pChild;
+		while (pChild)
+		{
+			if (pChild->param == new_node->param)
+			{
+				deleteSourceTreeNode(new_node);
+				return;
+			}
+			if (!pChild->pNext)
+				break;
+			pChild = pChild->pNext;
+		}
+		pChild->pNext = createEmptyNode();
+		pChild->pNext->param = pChild->param + 1;
+		pChild = pChild->pNext;
+		MY_ASSERT(pChild->param == pRoot->param);
+		pChild->pChild = new_node;
+	}
+	pRoot->param++;
+}
+
+/*//	type				: *[data_type_modifier] ( basic_type | (class_struct_union | 'typename') user_def_type_no_check | user_def_type | '__typeof' '(' twn_nocheck ')' ) *[data_type_modifier] ?[ *[?[const] '*'] ?[const] ?['&'] hard_scope '*'] ;
 //	type_nocheck		: *[data_type_modifier] ( basic_type | ?[(class_struct_union | 'typename')] user_def_type_no_check ) *[data_type_modifier] ?[ *[?[const] '*'] ?[const] ?['&'] hard_scope '*'] ;
 SourceTreeNode* typeNoCheck2Type(SourceTreeNode* pTypeNoCheck)
 {
@@ -1389,9 +1532,9 @@ SourceTreeNode* typeNoCheck2Type(SourceTreeNode* pTypeNoCheck)
 	}
 
 	return pTypeNoCheck;
-}
+}*/
 
-//extended_type       : type *[?[const] '*'] *[data_type_modifier] ?['&'];
+//	: type *['*' *[data_type_modifier] ] *[('&'|'&&')];
 SourceTreeNode* extendedTypeGetTypeNode(const SourceTreeNode* pRoot)
 {
 	return pRoot->pChild;
@@ -1405,54 +1548,58 @@ int extendedTypeGetDepth(const SourceTreeNode* pRoot)
 StringVector extendedTypeGetModStrings(const SourceTreeNode* pRoot)
 {
 	StringVector ret_s;
+	return ret_s;
 
-	pRoot = pRoot->pNext->pNext;
+	/*pRoot = pRoot->pNext->pNext;
 
     for (pRoot = pRoot->pChild; pRoot; pRoot = pRoot->pNext)
         ret_s.push_back(dataTypeModifierGetBit(pRoot->pChild->pChild));
 
-    return ret_s;
+    return ret_s;*/
 }
 
-bool extendedTypeIsReference(const SourceTreeNode* pRoot)
+int extendedTypeGetReferenceCount(const SourceTreeNode* pRoot)
 {
-	return pRoot->pNext->pNext->pNext->param > 0;
+	pRoot = pRoot->pNext->pNext;
+	if (pRoot->pChild == NULL)
+		return 0;
+
+	int cnt = 0;
+	for (pRoot = pRoot->pChild; pRoot; pRoot = pRoot->pNext)
+	{
+		if (pRoot->pChild->pChild->param == 0)
+			cnt++;
+		else
+			cnt += 2;
+	}
+
+	return cnt;
 }
 
-bool extendedTypePointerIsConst(const SourceTreeNode* pRoot, int depth) // is the layer of the given depth a pointer or a const pointer?
+StringVector extendedTypePointerGetModifiers(const SourceTreeNode* pRoot, int depth) // is the layer of the given depth a pointer or a const pointer?
 {
+	StringVector ret_v;
+
 	pRoot = pRoot->pNext;
 	MY_ASSERT(depth >= 0 && depth < pRoot->param);
 
 	for (pRoot = pRoot->pChild; depth > 0; depth--)
 		pRoot = pRoot->pNext;
 
-	return pRoot->pChild->param != 0;
+	pRoot = pRoot->pChild;
+	for (pRoot = pRoot->pChild; pRoot; pRoot = pRoot->pNext)
+		ret_v.push_back(dataTypeModifierGetBit(pRoot->pChild->pChild));
+
+	return ret_v;
 }
 
-// extended_type		: type *[?[const] '*' ?['__ptr64'] ] *[data_type_modifier] ?['&'];
-bool extendedTypePointerIsPtr64(const SourceTreeNode* pRoot, int depth) // is the layer of the given depth a pointer or a const pointer?
-{
-	pRoot = pRoot->pNext;
-	MY_ASSERT(depth >= 0 && depth < pRoot->param);
-
-	for (pRoot = pRoot->pChild; depth > 0; depth--)
-		pRoot = pRoot->pNext;
-
-	return pRoot->pChild->pNext->param != 0;
-}
-
+// type *['*' *[data_type_modifier] ] *[('&'|'&&')]; 
 SourceTreeNode* extendedTypeCreateFromType(SourceTreeNode* pTypeNode, SourceTreeNode* pDeclVar/* = NULL*/)
 {
 	SourceTreeNode* pRoot, *pNode;
 
-	// ?[&]
+	// *[&]
 	pNode = createEmptyNode();
-	pRoot = pNode;
-
-    // ?[const]
-	pNode = createEmptyNode();
-	pNode->pNext = pRoot;
 	pRoot = pNode;
 
     // *[?[const] '*']
@@ -1472,7 +1619,7 @@ SourceTreeNode* extendedTypeCreateFromType(SourceTreeNode* pTypeNode, SourceTree
 	        extendedTypeAddModifier(pRoot, declVarPointerIsConst(pDeclVar, i) ? DVMOD_TYPE_CONST_POINTER : DVMOD_TYPE_POINTER);
 	    if (declVarIsConst(pDeclVar))
 	        extendedTypeAddModifier(pRoot, DVMOD_TYPE_CONST);
-	    if (declVarIsReference(pDeclVar))
+	    for (int n = declVarGetReferenceCount(pDeclVar); n > 0; n--)
             extendedTypeAddModifier(pRoot, DVMOD_TYPE_REFERENCE);
 	    if (declVarHasInternalPointer(pDeclVar))
 	        extendedTypeAddModifier(pRoot, DVMOD_TYPE_INTERNAL_POINTER);
@@ -1481,6 +1628,7 @@ SourceTreeNode* extendedTypeCreateFromType(SourceTreeNode* pTypeNode, SourceTree
 	return pRoot;
 }
 
+// type *['*' *[data_type_modifier] ] *[('&'|'&&')]; 
 void extendedTypeAddModifier(SourceTreeNode* pRoot, DeclVarModifierType mod)
 {
 	SourceTreeNode* pNode;
@@ -1488,13 +1636,12 @@ void extendedTypeAddModifier(SourceTreeNode* pRoot, DeclVarModifierType mod)
 	switch (mod)
 	{
 	case DVMOD_TYPE_POINTER:
-    case DVMOD_TYPE_CONST_POINTER:
+	case DVMOD_TYPE_CONST_POINTER:
+	{
 		pRoot = pRoot->pNext;
 		pNode = createEmptyNode();
-		pNode->pChild = createEmptyNode();
-		if (mod == DVMOD_TYPE_CONST_POINTER)
-		    pNode->pChild->param = 1;
-	    pNode->pChild->pNext = createEmptyNode();
+		StringVector mods;
+		pNode->pChild = createDataTypeModifiers(mods);
 		pNode->param = pRoot->param;
 		pRoot->param++;
 		if (pRoot->pChild == NULL)
@@ -1507,20 +1654,35 @@ void extendedTypeAddModifier(SourceTreeNode* pRoot, DeclVarModifierType mod)
 			pRoot->pNext = pNode;
 		}
 		break;
-
+	}
     case DVMOD_TYPE_CONST:
+		MY_ASSERT(false);
         pRoot = pRoot->pNext->pNext;
         MY_ASSERT(pRoot->param == 0);
         pRoot->param = 1;
         break;
 
 	case DVMOD_TYPE_REFERENCE:
-		pRoot = pRoot->pNext->pNext->pNext;
-		MY_ASSERT(pRoot->param == 0);
-		pRoot->param = 1;
+		pRoot = pRoot->pNext->pNext;
+		pRoot->param++;
+		if (pRoot->pChild == NULL)
+		{
+			pRoot->pChild = createEmptyNode();
+			pRoot = pRoot->pChild;
+		}
+		else
+		{
+			for (pRoot = pRoot->pChild; pRoot->pNext; pRoot = pRoot->pNext);
+			pRoot->pNext = createEmptyNode();
+			pRoot->pNext->param = pRoot->param + 1;
+			pRoot = pRoot->pNext;
+		}
+		pRoot->pChild = createEmptyNode();
+		pRoot->pChild->pChild = createEmptyNode();
 		break;
 
 	case DVMOD_TYPE_INTERNAL_POINTER:
+		MY_ASSERT(false);
 		pRoot = pRoot->pNext->pNext->pNext;
 		MY_ASSERT(pRoot->param == 0);
 		pRoot->param = 1;
@@ -1559,7 +1721,24 @@ void extendedTypeVarGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pExten
 	depth = pRoot->pNext->param;
 }
 
-// func_params		: type_nocheck *[func_modifier2] ?[const] ?[ decl_var ?[ '=' %[expr, ',|)'] ] ] | func_type | '...' ;
+SourceTreeVector extendedTypeVarGetParams(const SourceTreeNode* pRoot)
+{
+	SourceTreeVector ret_v;
+
+	pRoot = pRoot->pNext;
+	for (pRoot = pRoot->pChild; pRoot; pRoot = pRoot->pNext)
+	{
+		if (!pRoot->pChild->param)
+			ret_v.push_back(NULL);
+		else
+			ret_v.push_back(pRoot->pChild->pChild->pChild);
+	}
+
+	return ret_v;
+}
+
+//	func_param          : type *[func_modifier2] ?[const] ?[ decl_var ?[ '=' %[expr, ',|)'] ] ?[attribute] ] | func_type \\\n\
+	                    | ?['const'] token ('*' | '&') ?[token];
 void funcParamGetInfo(const SourceTreeNode* pRoot, FuncParamType& param_type, StringVector& mod_strings, SourceTreeNode*& pTypeNode, SourceTreeNode*& pDeclVarNode, void*& pInitExprBlock)
 {
 	pTypeNode = pDeclVarNode = NULL;
@@ -1570,7 +1749,7 @@ void funcParamGetInfo(const SourceTreeNode* pRoot, FuncParamType& param_type, St
 	case 0:
 		pRoot = pRoot->pChild;
 		param_type = FUNC_PARAM_TYPE_REGULAR;
-		pTypeNode = typeNoCheck2Type(pRoot->pChild);
+		pTypeNode = pRoot->pChild;
 		pRoot = pRoot->pNext;
 
 		for (SourceTreeNode* pNode = pRoot->pChild; pNode; pNode = pNode->pNext)
@@ -1600,6 +1779,27 @@ void funcParamGetInfo(const SourceTreeNode* pRoot, FuncParamType& param_type, St
 		pTypeNode = pRoot->pChild;
 		break;
 
+	case 2:
+	{
+		pRoot = pRoot->pChild;
+		param_type = FUNC_PARAM_TYPE_REGULAR;
+		bool bConst = (pRoot->param != 0);
+		pRoot = pRoot->pNext;
+
+		TokenWithNamespace type_twn;
+		type_twn.addScope(pRoot->value);
+		pTypeNode = typeCreateByUserDefined(CSU_TYPE_NONE, userDefTypeCreateByName(type_twn));
+		if (bConst)
+			typeAddDataTypeModifier(pTypeNode, "const");
+		pRoot = pRoot->pNext;
+
+		std::string var_name;
+		if (pRoot->pNext->param)
+			var_name = pRoot->pNext->pChild->value;
+		pDeclVarNode = declVarCreateByName(var_name);
+		declVarAddModifier(pDeclVarNode, (pRoot->pChild->param == 0 ? DVMOD_TYPE_POINTER : DVMOD_TYPE_REFERENCE));
+		break;
+	}
 	default:
 		MY_ASSERT(false);
 	}
@@ -1626,13 +1826,14 @@ bool funcParamsHasVArgs(const SourceTreeNode* pRoot)
     return pRoot->pNext->param != 0;
 }
 
-//	func_type           : extended_type ?( ?[ ?( *[func_modifier2] scope +['*'] ?[token] ) ] '(' func_params ')' *[data_type_modifier] ) ;
+// extended_type ?( ?[ ?( *[func_modifier2] ?['^'] scope +['*'] ?[token ?['(' func_params ')']] ) ] '(' func_params ')' *[data_type_modifier] ) ; 
 void funcTypeGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pReturnExtendedType, StringVector& mod_strings, SourceTreeNode*& pScope, int& nDepth, std::string& name, SourceTreeNode*& pFuncParamsNode, StringVector& mod2_strings)
 {
 	pScope = NULL;
     name = "";
 	nDepth = 0;
 
+	// extended_type
 	pReturnExtendedType = pRoot->pChild;
 	pRoot = pRoot->pNext;
 
@@ -1643,7 +1844,7 @@ void funcTypeGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pReturnExtend
         SourceTreeNode* pNode = pRoot->pChild;
 
 		pNode = pNode->pChild;
-
+		// *[func_modifier2]
 		for (SourceTreeNode* pNode2 = pNode->pChild; pNode2; pNode2 = pNode2->pNext)
 			mod_strings.push_back(funcModifier2GetBit(pNode2->pChild->pChild));
         pNode = pNode->pNext;
@@ -1762,9 +1963,11 @@ GrammarFuncHeaderInfo funcHeaderGetInfo(const SourceTreeNode* pRoot)
 	return info;
 }
 
-//enum_def			: 'enum' ?[token] '{' %[enum_items, '}'] '}';
+//enum_def			: 'enum' *[common_modifier] ?[token] '{' %[enum_items, '}'] '}';
 void enumDefGetInfo(const SourceTreeNode* pRoot, std::string& name, void*& bracket_block)
 {
+	pRoot = pRoot->pNext;
+
 	name = "";
 	if (pRoot->param)
 		name = pRoot->pChild->value;
@@ -1801,9 +2004,11 @@ void enumItemsGetAt(const SourceTreeNode* pRoot, int idx, std::string& key, Sour
 		pExpr = pRoot->pChild->pChild;
 }
 
-//union_def		   : 'union' ^ ?[token] '{' *[defs] '}';
+//union_def		   : 'union' *[common_modifier] ?[token] '{' *[defs] '}';
 void unionDefGetInfo(const SourceTreeNode* pRoot, std::string& name, void*& bracket_block)
 {
+	pRoot = pRoot->pNext;
+
 	name = "";
 	if (pRoot->param)
 		name = pRoot->pChild->value;
@@ -2006,7 +2211,7 @@ void superTypeGetInfo(const SourceTreeNode* pRoot, SuperTypeType& super_type, So
 	pChildNode = pRoot->pChild->pChild;
 }
 
-// *[?[const] '*' ?['__ptr64']] ?[const] ?['__restrict'] ?['('] ?[('&' | '*')] ?[scope &V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']'];
+// *['*' *[data_type_modifier]] ?['__restrict'] ?['('] *[('*' | '&' | '&&')] ?[scope &V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']'];
 TokenWithNamespace declVarGetName(const SourceTreeNode* pRoot)
 {
 	TokenWithNamespace twn;
@@ -2014,7 +2219,7 @@ TokenWithNamespace declVarGetName(const SourceTreeNode* pRoot)
 	if (!pRoot)
 		return twn;
 
-	pRoot = pRoot->pNext->pNext->pNext->pNext->pNext;
+	pRoot = pRoot->pNext->pNext->pNext->pNext;
 	if (pRoot->param == 0)
 		return twn;
 
@@ -2034,11 +2239,9 @@ int declVarGetDepth(const SourceTreeNode* pRoot)
 	if (!pRoot)
 		return 0;
 
-	int ret = pRoot->param;
-	pRoot = pRoot->pNext->pNext->pNext->pNext;
-	if (pRoot->param && pRoot->pChild->pChild->param == 1)
-		ret++;
-	pRoot = pRoot->pNext->pNext->pNext->pNext;
+	int ret = declVarGetPointerCount(pRoot);
+
+	pRoot = pRoot->pNext->pNext->pNext->pNext->pNext->pNext->pNext;
 	ret += pRoot->param;
 	pRoot = pRoot->pNext;
 	ret += pRoot->param;
@@ -2052,17 +2255,28 @@ int declVarGetPointerCount(const SourceTreeNode* pRoot)
 	if (!pRoot)
 		return 0;
 
-	int ret = pRoot->param;
-	pRoot = pRoot->pNext->pNext->pNext->pNext;
-	if (pRoot->param && pRoot->pChild->pChild->param == 1)
-		ret++;
+	return pRoot->param + declVarHasInternalPointer(pRoot);
+}
 
+int declVarHasInternalPointer(const SourceTreeNode* pRoot)
+{
+	int ret = 0;
+	pRoot = pRoot->pNext->pNext->pNext;
+
+	if (pRoot->param > 0)
+	{
+		for (const SourceTreeNode* pNode = pRoot->pChild; pNode; pNode = pNode->pNext)
+		{
+			if (pNode->pChild->pChild->param == 0)
+				ret++;
+		}
+	}
 	return ret;
 }
 
 std::string declVarGetBitsValue(const SourceTreeNode* pRoot)
 {
-	pRoot = pRoot->pNext->pNext->pNext->pNext->pNext->pNext->pNext;
+	pRoot = pRoot->pNext->pNext->pNext->pNext->pNext->pNext;
 	if (pRoot->param)
 		return pRoot->pChild->value;
 
@@ -2071,30 +2285,34 @@ std::string declVarGetBitsValue(const SourceTreeNode* pRoot)
 
 bool declVarIsConst(const SourceTreeNode* pRoot)
 {
-	return pRoot->pNext->param != 0;
+	return false; //pRoot->pNext->param != 0;
 }
 
-//	*[?[const] '*' ?['__ptr64']] ?[const] ?['__restrict'] ?['('] ?[('&' | '*')] ?[scope &V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']'];
-bool declVarIsReference(const SourceTreeNode* pRoot)
+// *['*' *[data_type_modifier]] ?['__restrict'] ?['('] *[('*' | '&' | '&&')] ?[scope &V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']'];
+int declVarGetReferenceCount(const SourceTreeNode* pRoot)
 {
 	if (!pRoot)
 		return false;
 
-	pRoot = pRoot->pNext->pNext->pNext->pNext;
+	pRoot = pRoot->pNext->pNext->pNext;
+	if (pRoot->param == 0)
+		return 0;
 
-	return pRoot->param != 0 && pRoot->pChild->pChild->param == 0;
-}
+	int ret = 0;
+	for (const SourceTreeNode* pNode = pRoot->pChild; pNode; pNode = pNode->pNext)
+	{
+		if (pNode->pChild->pChild->param == 1)
+			ret++;
+		else if (pNode->pChild->pChild->param == 2)
+			ret += 2;
+	}
 
-bool declVarHasInternalPointer(const SourceTreeNode* pRoot)
-{
-	pRoot = pRoot->pNext->pNext->pNext->pNext;
-
-	return pRoot->param != 0 && pRoot->pChild->pChild->param == 1;
+	return ret;
 }
 
 bool declVarHasParenthesis(const SourceTreeNode* pRoot)
 {
-	pRoot = pRoot->pNext->pNext->pNext;
+	pRoot = pRoot->pNext->pNext;
 
 	return pRoot->param != 0;
 }
@@ -2107,10 +2325,16 @@ bool declVarPointerIsConst(const SourceTreeNode* pRoot, int depth) // is the lay
 	for (pRoot = pRoot->pChild; depth > 0; depth--)
 		pRoot = pRoot->pNext;
 
-	return pRoot->pChild->param != 0;
+    for (pRoot = pRoot->pChild->pChild; pRoot; pRoot = pRoot->pNext)
+	{
+		if (trim(dataTypeModifierGetBit(pRoot->pChild->pChild)) == "const")
+			return true;
+	}
+
+	return false;
 }
 
-bool declVarPointerIsPtr64(const SourceTreeNode* pRoot, int depth)
+/*bool declVarPointerIsPtr64(const SourceTreeNode* pRoot, int depth)
 {
 	if (depth >= pRoot->param)
 		return false;
@@ -2118,12 +2342,18 @@ bool declVarPointerIsPtr64(const SourceTreeNode* pRoot, int depth)
 	for (pRoot = pRoot->pChild; depth > 0; depth--)
 		pRoot = pRoot->pNext;
 
-	return pRoot->pChild->pNext->param != 0;
-}
+    for (pRoot = pRoot->pChild->pChild; pRoot; pRoot = pRoot->pNext)
+	{
+		if (trim(dataTypeModifierGetBit(pRoot->pChild->pChild)) == "__ptr64")
+			return true;
+	}
+
+	return false;
+}*/
 
 int declVarGetBits(const SourceTreeNode* pRoot)
 {
-    pRoot = pRoot->pNext->pNext->pNext->pNext->pNext->pNext->pNext;
+    pRoot = pRoot->pNext->pNext->pNext->pNext->pNext->pNext;
     if (pRoot->param == 0)
         return -1;
 
@@ -2134,14 +2364,14 @@ SourceTreeVector declVarGetExprs(const SourceTreeNode* pRoot)
 {
 	SourceTreeVector ret_v;
 
-	pRoot = pRoot->pNext->pNext->pNext->pNext->pNext->pNext->pNext->pNext->pNext;
+	pRoot = pRoot->pNext->pNext->pNext->pNext->pNext->pNext->pNext->pNext;
 	for (pRoot = pRoot->pChild; pRoot; pRoot = pRoot->pNext)
 		ret_v.push_back(pRoot->pChild->pChild);
 
 	return ret_v;
 }
 
-//decl_var			: *[?[const] '*' ?['__ptr64']] ?[const] ?['__restrict'] ?['('] ?[('&' | '*')] ?[scope &V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']'];
+// *['*' *[data_type_modifier]] ?['__restrict'] ?['('] *[('*' | '&' | '&&')] ?[scope &V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']'];
 SourceTreeNode* declVarCreateByName(const std::string& new_name)
 {
 	SourceTreeNode *pRoot, *pNode;
@@ -2177,7 +2407,7 @@ SourceTreeNode* declVarCreateByName(const std::string& new_name)
 	pNode->pNext = createEmptyNode();
 	pNode->pNext->value = new_name;
 
-	// ?['&']
+	// *[('*'|'&'|'&&')]
 	pNode = createEmptyNode();
 	pNode->pNext = pRoot;
 	pRoot = pNode;
@@ -2192,10 +2422,10 @@ SourceTreeNode* declVarCreateByName(const std::string& new_name)
 	pNode->pNext = pRoot;
 	pRoot = pNode;
 
-	// ?[const]
+	/*// ?[const]
 	pNode = createEmptyNode();
 	pNode->pNext = pRoot;
-	pRoot = pNode;
+	pRoot = pNode;*/
 
 	// *['*']
 	pNode = createEmptyNode();
@@ -2213,27 +2443,15 @@ void declVarAddModifier(SourceTreeNode* pRoot, DeclVarModifierType mode, SourceT
 	switch (mode)
 	{
 	case DVMOD_TYPE_POINTER:
-		pNode = createEmptyNode();
-		pNode->param = pRoot->param;
-		pNode->pChild = createEmptyNode();
-		pNode->pChild->param = 0;
-		if (pRoot->pChild == NULL)
-			pRoot->pChild = pNode;
-		else
-		{
-			pRoot = pRoot->pChild;
-			while (pRoot->pNext)
-				pRoot = pRoot->pNext;
-			pRoot->pNext = pNode;
-		}
-		pRoot->param++;
-		break;
-
 	case DVMOD_TYPE_CONST_POINTER:
+	{
+		StringVector sv;
+		if (mode == DVMOD_TYPE_CONST_POINTER)
+			sv.push_back("const");
 		pNode = createEmptyNode();
 		pNode->param = pRoot->param;
-		pNode->pChild = createEmptyNode();
-		pNode->pChild->param = 1;
+		pNode->pChild = createDataTypeModifiers(sv);
+		pRoot->param++;
 		if (pRoot->pChild == NULL)
 			pRoot->pChild = pNode;
 		else
@@ -2243,36 +2461,40 @@ void declVarAddModifier(SourceTreeNode* pRoot, DeclVarModifierType mode, SourceT
 				pRoot = pRoot->pNext;
 			pRoot->pNext = pNode;
 		}
-		pRoot->param++;
 		break;
-
+	}
 	case DVMOD_TYPE_CONST:
+		MY_ASSERT(false);
 		pRoot->pNext->param = 1;
 		break;
 
 	case DVMOD_TYPE_REFERENCE:
-		pRoot = pRoot->pNext->pNext->pNext->pNext;
-		MY_ASSERT(pRoot->param == 0);
-		pRoot->param = 1;
-		pRoot->pChild = createEmptyNode();
-		pRoot->pChild->pChild = createEmptyNode();
-		break;
-
 	case DVMOD_TYPE_INTERNAL_POINTER:
-		pRoot = pRoot->pNext->pNext->pNext->pNext;
-		MY_ASSERT(pRoot->param == 0);
-		pRoot->param = 1;
+		pRoot = pRoot->pNext->pNext->pNext;
+		pRoot->param++;
+		if (pRoot->pChild == NULL)
+		{
+			pRoot->pChild = createEmptyNode();
+			pRoot = pRoot->pChild;
+		}
+		else
+		{
+			for (pRoot = pRoot->pChild; pRoot->pNext; pRoot = pRoot->pNext);
+			pRoot->pNext = createEmptyNode();
+			pRoot->pNext->param = pRoot->param + 1;
+			pRoot = pRoot->pNext;
+		}
 		pRoot->pChild = createEmptyNode();
 		pRoot->pChild->pChild = createEmptyNode();
-		pRoot->pChild->pChild->param = 1;
+		pRoot->pChild->pChild->param = (mode == DVMOD_TYPE_INTERNAL_POINTER ? 0 : 1);
 		break;
 
 	case DVMOD_TYPE_PARENTHESIS:
-		pRoot->pNext->pNext->pNext->param = pRoot->pNext->pNext->pNext->pNext->pNext->pNext->param = 1;
+		pRoot->pNext->pNext->param = pRoot->pNext->pNext->pNext->pNext->pNext->pNext->param = 1;
 		break;
 
 	case DVMOD_TYPE_BIT:
-		pRoot = pRoot->pNext->pNext->pNext->pNext->pNext->pNext->pNext;
+		pRoot = pRoot->pNext->pNext->pNext->pNext->pNext->pNext;
 		MY_ASSERT(pRoot->param == 0);
 		pRoot->param = 1;
 		pNode = createEmptyNode();
@@ -2282,7 +2504,7 @@ void declVarAddModifier(SourceTreeNode* pRoot, DeclVarModifierType mode, SourceT
 		break;
 
 	case DVMOD_TYPE_BRACKET:
-		pRoot = pRoot->pNext->pNext->pNext->pNext->pNext->pNext->pNext->pNext;
+		pRoot = pRoot->pNext->pNext->pNext->pNext->pNext->pNext->pNext;
 		if (pExtNode == NULL)
 		{
 			MY_ASSERT(pRoot->param == 0);
@@ -2317,25 +2539,55 @@ void declVarRemoveModifier(SourceTreeNode* pRoot, DeclVarModifierType mode)
 	switch (mode)
 	{
 	case DVMOD_TYPE_CONST:
+		MY_ASSERT(false);
 		pRoot->pNext->param = 0;
 		break;
 
 	case DVMOD_TYPE_REFERENCE:
-		pRoot = pRoot->pNext->pNext->pNext->pNext;
-		MY_ASSERT(pRoot->param == 1);
-		pRoot->param = 0;
-		pRoot->pChild = NULL;
+	{
+		pRoot = pRoot->pNext->pNext->pNext;
+		MY_ASSERT(pRoot->param > 0);
+		SourceTreeNode* pLast = NULL, *pNode = pRoot->pChild;
+		for (; pNode; pLast = pNode, pNode = pNode->pNext)
+		{
+			if (pNode->pChild->pChild->param == 0)
+				continue;
+			break;
+		}
+		if (pNode == NULL)
+		{
+			MY_ASSERT(false);
+		}
+		if (pNode->pChild->pChild->param == 1) // '&'
+		{
+			if (pNode->pNext)
+				pNode->pNext->param--;
+			if (pLast == NULL)
+				pRoot->pChild = pNode->pNext;
+			else
+				pLast->pNext = pNode->pNext;
+			pLast = pNode->pNext;
+			delete pNode->pChild;
+			delete pNode;
+			pRoot->param--;
+			for (pNode = pLast; pNode->pNext; pNode = pNode->pNext)
+				pNode->pNext->param = pNode->param + 1;
+		}
+		else
+		{
+			pNode->pChild->pChild->param = 1; // '&&' -> '&'
+		}
 		break;
-
+	}
 	default:
 		MY_ASSERT(false);
 	}
 }
 
-//	*[?[const] '*' ?['__ptr64']] ?[const] ?['__restrict'] ?['('] ?[('&' | '*')] ?[&V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']'];
+// *['*' *[data_type_modifier]] ?['__restrict'] ?['('] *[('*' | '&' | '&&')] ?[scope &V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']'];
 void declVarAddArrayExpr(SourceTreeNode* pRoot, SourceTreeNode* pExprNode)
 {
-	pRoot = pRoot->pNext->pNext->pNext->pNext->pNext->pNext->pNext->pNext->pNext;
+	pRoot = pRoot->pNext->pNext->pNext->pNext->pNext->pNext->pNext->pNext;
 
 	int n = pRoot->param++;
 	if (n == 0)
@@ -2367,9 +2619,18 @@ SourceTreeNode* declVarCreateFromExtendedType(const std::string& name, const Sou
 	int depth = extendedTypeGetDepth(pExtendedType);
 
 	for (int i = 0; i < depth; i++)
-		declVarAddModifier(pRoot, (extendedTypePointerIsConst(pExtendedType, i) ? DVMOD_TYPE_CONST_POINTER : DVMOD_TYPE_POINTER));
+	{
+		bool bConst = false;
+		StringVector v = extendedTypePointerGetModifiers(pExtendedType, i);
+		for (unsigned j = 0; j < v.size(); j++)
+		{
+			if (trim(v[j]) == "const")
+				bConst = true;
+		}
+		declVarAddModifier(pRoot, (bConst ? DVMOD_TYPE_CONST_POINTER : DVMOD_TYPE_POINTER));
+	}
 
-	if (extendedTypeIsReference(pExtendedType))
+	for (int n = extendedTypeGetReferenceCount(pExtendedType); n > 0; n--)
 		declVarAddModifier(pRoot, DVMOD_TYPE_REFERENCE);
 
 	StringVector mod_strings = extendedTypeGetModStrings(pExtendedType);
@@ -2381,7 +2642,7 @@ SourceTreeNode* declVarCreateFromExtendedType(const std::string& name, const Sou
 
 void declVarChangeName(SourceTreeNode* pRoot, const std::string& new_name)
 {
-	pRoot = pRoot->pNext->pNext->pNext->pNext->pNext;
+	pRoot = pRoot->pNext->pNext->pNext->pNext;
 
 	MY_ASSERT(pRoot->param > 0);
 
@@ -2543,7 +2804,7 @@ ExprType exprGetType(const SourceTreeNode* pRoot)
     case 57:
         return EXPR_TYPE_BUILTIN_TYPE_FUNC;
     case 58:
-        return EXPR_TYPE_IS_BASE_OF;
+        return EXPR_TYPE_BUILTIN_TYPE_FUNC2;
     case 59:
         return EXPR_TYPE_CONST_CAST;
     case 60:
@@ -2625,22 +2886,48 @@ std::string exprBuiltinFuncGetName(const SourceTreeNode* pRoot)
     case 2:
         return "__is_class";
     case 3:
-        return "__is_empty";
+        return "__is_union";
     case 4:
-        return "__is_enum";
+        return "__is_empty";
     case 5:
-        return "__is_pod";
+        return "__is_enum";
     case 6:
-        return "__has_nothrow_assign";
-    case 7:
-        return "__has_nothrow_copy";
+        return "__is_pod";
+	case 7:
+		return "__is_polymorphic";
     case 8:
-        return "__has_trivial_assign";
+        return "__has_nothrow_assign";
     case 9:
-        return "__has_trivial_copy";
+        return "__has_nothrow_constructor";
     case 10:
+        return "__has_nothrow_copy";
+    case 11:
+        return "__has_trivial_assign";
+    case 12:
+        return "__has_trivial_copy";
+    case 13:
+        return "__has_trivial_constructor";
+    case 14:
         return "__has_trivial_destructor";
+    case 15:
+        return "__has_virtual_destructor";
     }
+
+    MY_ASSERT(false);
+    return "";
+}
+
+std::string exprBuiltinFunc2GetName(const SourceTreeNode* pRoot)
+{
+    MY_ASSERT(exprGetType(pRoot) == EXPR_TYPE_BUILTIN_TYPE_FUNC2);
+
+    switch (pRoot->pChild->pChild->param)
+    {
+    case 0:
+        return "__is_base_of";
+    case 1:
+        return "__is_convertible_to";
+	}
 
     MY_ASSERT(false);
     return "";
@@ -2807,13 +3094,21 @@ void exprOrDeclVarGetInfo(const SourceTreeNode* pRoot, bool& bIsExpr, SourceTree
     }
 }
 
-//class_base_init     : user_def_type_no_check '(' expr2 ')' ;
-void classBaseInitGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pUserDefTypeOrMember, SourceTreeNode*& pExpr2)
+//class_base_init     : (user_def_type | token) '(' expr ')';
+void classBaseInitGetInfo(const SourceTreeNode* pRoot, bool& bClassNotMember, TokenWithNamespace& twn, SourceTreeNode*& pExpr2Node)
 {
-    pUserDefTypeOrMember = pRoot->pChild;
-    pRoot = pRoot->pNext;
-
-    pExpr2 = pRoot->pChild;
+	if (pRoot->pChild->param == 0)
+	{
+		bClassNotMember = true;
+		twn = userDefTypeGetInfo(pRoot->pChild->pChild->pChild);
+	}
+	else
+	{
+		bClassNotMember = true;
+		twn.addScope(pRoot->pChild->pChild->value);
+	}
+	pRoot = pRoot->pNext;
+	pExpr2Node = pRoot->pChild;
 }
 
 SourceTreeVector classBaseInitsGetList(const SourceTreeNode* pRoot)
@@ -2859,10 +3154,12 @@ StatementType statementGetType(const SourceTreeNode* pRoot)
 	case 13:
 		return STATEMENT_TYPE___ASM;
 	case 14:
-		return STATEMENT_TYPE_FLOW_NEW;
+		return STATEMENT_TYPE___PRAGMA;
 	case 15:
+		return STATEMENT_TYPE_FLOW_NEW;
+	case 16:
 		return STATEMENT_TYPE_EXPR2;
-    case 16:
+    case 17:
         return STATEMENT_TYPE_DEF;
 	}
 	MY_ASSERT(false);
@@ -2918,14 +3215,17 @@ void statementWhileGetExprStatement(const SourceTreeNode* pRoot, SourceTreeNode*
 	pStatement = pRoot->pChild;
 }
 
-void statementDoGetExprStatement(const SourceTreeNode* pRoot, SourceTreeNode*& pStatement, SourceTreeNode*& pExpr)
+SourceTreeNode* statementDoGetStatement(const SourceTreeNode* pRoot)
 {
 	MY_ASSERT(statementGetType(pRoot) == STATEMENT_TYPE_DO);
 	pRoot = pRoot->pChild;
 
-	pStatement = pRoot->pChild;
-	pRoot = pRoot->pNext;
-	pExpr = pRoot->pChild;
+	return pRoot->pChild;
+}
+
+SourceTreeNode* statementDoWhileGetExpr(const SourceTreeNode* pRoot)
+{
+	return pRoot->pChild;
 }
 
 //| ^O 'for' '(' ?[expr_or_decl_var] ';' ^E ?[expr] ';' expr2 ')' statement
@@ -3096,6 +3396,18 @@ StringVector statementAsmGetInfo(const SourceTreeNode* pRoot)
 	return CGrammarAnalyzer::bracketBlockGetTokens(pRoot->ptr);
 }
 
+//| ^O '__pragma' '(' *[any_token] ')'
+StringVector statementPragmaGetInfo(const SourceTreeNode* pRoot)
+{
+	MY_ASSERT(statementGetType(pRoot) == STATEMENT_TYPE___PRAGMA);
+	StringVector ret_v;
+
+	for (pRoot = pRoot->pChild->pChild; pRoot; pRoot = pRoot->pNext)
+		ret_v.push_back(pRoot->pChild->value);
+
+	return ret_v;
+}
+
 SourceTreeNode* statementDefGetNode(const SourceTreeNode* pRoot)
 {
 	MY_ASSERT(statementGetType(pRoot) == STATEMENT_TYPE_DEF);
@@ -3150,7 +3462,7 @@ DefType defGetType(const SourceTreeNode* pRoot)
 std::string defPragmaGetInfo(const SourceTreeNode* pRoot)
 {
 	MY_ASSERT(defGetType(pRoot) == DEF_TYPE___PRAGMA);
-	pRoot = pRoot->pChild;
+	pRoot = pRoot->pChild->pChild;
 
 	std::string ret_s;
 	for (pRoot = pRoot->pChild; pRoot; pRoot = pRoot->pNext)
@@ -3205,7 +3517,7 @@ TokenWithNamespace defUsingNamespaceGetInfo(const SourceTreeNode* pRoot, bool& b
     return twn;
 }
 
-// *[ext_modifier] 'typedef' ^ (super_type +[decl_var, ','] ?[attribute] | extended_type token '(' ^ func_params ')' | func_type ) ';'
+// *[ext_modifier] 'typedef' *[common_modifier] (super_type +[decl_var, ','] ?[attribute] | extended_type token '(' ^ func_params ')' | func_type ) ';'
 TypeDefType defTypedefGetBasicInfo(const SourceTreeNode* pRoot, StringVector& mod_strings)
 {
 	MY_ASSERT(defGetType(pRoot) == DEF_TYPE_TYPEDEF);
@@ -3213,8 +3525,12 @@ TypeDefType defTypedefGetBasicInfo(const SourceTreeNode* pRoot, StringVector& mo
 
 	for (SourceTreeNode* pNode = pRoot->pChild; pNode; pNode = pNode->pNext)
 		mod_strings.push_back(extModifierGetBit(pNode->pChild->pChild));
-
 	pRoot = pRoot->pNext;
+
+	for (SourceTreeNode* pNode = pRoot->pChild; pNode; pNode = pNode->pNext)
+		mod_strings.push_back(extModifierGetBit(pNode->pChild->pChild));
+	pRoot = pRoot->pNext;
+
 	switch (pRoot->pChild->param)
 	{
 	case 0:
@@ -3229,17 +3545,19 @@ TypeDefType defTypedefGetBasicInfo(const SourceTreeNode* pRoot, StringVector& mo
 		return TYPEDEF_TYPE_FUNC_PTR;
     case 5:
         return TYPEDEF_TYPE_TYPEOF;
+    case 6:
+        return TYPEDEF_TYPE_DECLTYPE;
 	}
 	MY_ASSERT(false);
 	return TYPEDEF_TYPE_DATA;
 }
 
-// ?[declspec] *[ext_modifier] 'typedef' ^ (type +[decl_var, ','] ?[attribute] | extended_type token '(' ^ func_params ')' | func_type ) ';'
+// *[ext_modifier] 'typedef' *[common_modifier] ^ (type +[decl_var, ','] ?[attribute] | extended_type token '(' ^ func_params ')' | func_type ) ';'
 void defTypedefDataGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pType, SourceTreeVector& declVarList, StringVector& attribute)
 {
 	StringVector mod_strings;
 	MY_ASSERT(defTypedefGetBasicInfo(pRoot, mod_strings) == TYPEDEF_TYPE_DATA);
-	pRoot = pRoot->pChild->pNext->pChild->pChild;
+	pRoot = pRoot->pChild->pNext->pNext->pChild->pChild;
 
 	pType = pRoot->pChild;
 	pRoot = pRoot->pNext;
@@ -3256,7 +3574,7 @@ void defTypedefSuperTypeGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pS
 {
 	StringVector mod_strings;
 	MY_ASSERT(defTypedefGetBasicInfo(pRoot, mod_strings) == TYPEDEF_TYPE_SUPER_TYPE);
-	pRoot = pRoot->pChild->pNext->pChild->pChild;
+	pRoot = pRoot->pChild->pNext->pNext->pChild->pChild;
 
 	pSuperType = pRoot->pChild;
 	pRoot = pRoot->pNext;
@@ -3269,7 +3587,7 @@ void defTypedefDataMemberPtrGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*
 {
 	StringVector mod_strings;
     MY_ASSERT(defTypedefGetBasicInfo(pRoot, mod_strings) == TYPEDEF_TYPE_DATA_MEMBER_PTR);
-    pRoot = pRoot->pChild->pNext->pChild->pChild;
+    pRoot = pRoot->pChild->pNext->pNext->pChild->pChild;
 
     pExtendedTypeNode = pRoot->pChild;
     pRoot = pRoot->pNext;
@@ -3283,7 +3601,7 @@ void defTypedefFuncGetInfo(const SourceTreeNode* pRoot, SourceTreeNode*& pExtend
 {
 	StringVector mod2_strings;
 	MY_ASSERT(defTypedefGetBasicInfo(pRoot, mod2_strings) == TYPEDEF_TYPE_FUNC);
-	pRoot = pRoot->pChild->pNext->pChild->pChild;
+	pRoot = pRoot->pChild->pNext->pNext->pChild->pChild;
 
 	pExtendedType = pRoot->pChild;
 	pRoot = pRoot->pNext;
@@ -3304,7 +3622,7 @@ SourceTreeNode* defTypedefFuncTypeGetInfo(const SourceTreeNode* pRoot)
 {
 	StringVector mod_strings;
 	MY_ASSERT(defTypedefGetBasicInfo(pRoot, mod_strings) == TYPEDEF_TYPE_FUNC_PTR);
-	pRoot = pRoot->pChild->pNext->pChild->pChild;
+	pRoot = pRoot->pChild->pNext->pNext->pChild->pChild;
 
 	return pRoot->pChild;
 }
@@ -3313,9 +3631,22 @@ void defTypedefTypeOfGetInfo(const SourceTreeNode* pRoot, bool& bType, SourceTre
 {
 	StringVector mod_strings;
     MY_ASSERT(defTypedefGetBasicInfo(pRoot, mod_strings) == TYPEDEF_TYPE_TYPEOF);
-    pRoot = pRoot->pChild->pNext->pChild->pChild;
+    pRoot = pRoot->pChild->pNext->pNext->pChild->pChild;
 
-    bType = (pRoot->param == 0);
+    bType = (pRoot->pChild->param == 0);
+    pExtendedTypeOrExprNode = pRoot->pChild->pChild->pChild;
+    pRoot = pRoot->pNext;
+
+    name = pRoot->value;
+}
+
+void defTypedefDecltypeGetInfo(const SourceTreeNode* pRoot, bool& bType, SourceTreeNode*& pExtendedTypeOrExprNode, std::string& name)
+{
+	StringVector mod_strings;
+    MY_ASSERT(defTypedefGetBasicInfo(pRoot, mod_strings) == TYPEDEF_TYPE_DECLTYPE);
+    pRoot = pRoot->pChild->pNext->pNext->pChild->pChild;
+
+    bType = (pRoot->pChild->param == 0);
     pExtendedTypeOrExprNode = pRoot->pChild->pChild->pChild;
     pRoot = pRoot->pNext;
 
@@ -3622,7 +3953,7 @@ void templateTypeDefGetInfo(const SourceTreeNode* pRoot, int& header_type, Sourc
 					bDataOrFuncType = true;
 					pRoot = pRoot->pChild;
 					if (pRoot->param)
-					  bHasTypename = true;
+						bHasTypename = true;
 					pRoot = pRoot->pNext;
 					pDefaultNode = pRoot->pChild;
 				}
@@ -4156,25 +4487,40 @@ std::string displaySourceTreeBasicType(const SourceTreeNode* pRoot)
 			case 7:
 				ret_s += "double ";
 				break;
-            case 8:
-                ret_s += "__int128 ";
-                break;
+			case 8:
+				ret_s += "__int8 ";
+				break;
 			case 9:
-				ret_s += "bool ";
+				ret_s += "__int16 ";
 				break;
 			case 10:
-				ret_s += "wchar_t ";
+				ret_s += "__int32 ";
 				break;
 			case 11:
-				ret_s += "__w64 ";
-				break;
-			case 12:
 				ret_s += "__int64 ";
+				break;
+            case 12:
+                ret_s += "__int128 ";
+                break;
+			case 13:
+				ret_s += "bool ";
+				break;
+			case 14:
+				ret_s += "wchar_t ";
+				break;
+			case 15:
+				ret_s += "__w64 ";
 				break;
 			default:
 				MY_ASSERT(false);
 			}
 		}
+		break;
+	case 4:
+		ret_s += "__nullptr ";
+		break;
+	default:
+		MY_ASSERT(false);
 	}
 
 	return ret_s.substr(0, ret_s.size() - 1);
@@ -4266,7 +4612,7 @@ std::string displaySourceTreeType(const SourceTreeNode* pRoot, int depth)
 		break;
 	}
     case BASICTYPE_TYPE_TYPEOF:
-        ret_s += displaySourceTreeTokenWithNamespace(typeTypeOfGetInfo(pRoot));
+        ret_s += displaySourceTreeExpr(typeTypeOfGetInfo(pRoot));
         break;
 
     case BASICTYPE_TYPE_DATA_MEMBER_POINTER:
@@ -4558,19 +4904,18 @@ std::string displaySourceTreeExtendedType(const SourceTreeNode* pRoot, int depth
 
 	for (int i = 0; i < extendedTypeGetDepth(pRoot); i++)
 	{
-		if (extendedTypePointerIsConst(pRoot, i))
-			ret_s += " const";
 		ret_s += "*";
-		if (extendedTypePointerIsPtr64(pRoot, i))
-			ret_s += " __ptr64";
+		StringVector v = extendedTypePointerGetModifiers(pRoot, i);
+		for (unsigned j = 0; j < v.size(); j++)
+			ret_s += v[j];
 	}
 
-	StringVector mod_strings = extendedTypeGetModStrings(pRoot);
+	/*StringVector mod_strings = extendedTypeGetModStrings(pRoot);
 	if (isInModifiers(mod_strings, MODBIT_CONST))
 	    ret_s += " const";
 	if (isInModifiers(mod_strings, MODBIT_VOLATILE))
-        ret_s += " volatile";
-    if (extendedTypeIsReference(pRoot))
+        ret_s += " volatile";*/
+    for (int n = extendedTypeGetReferenceCount(pRoot); n > 0; n--)
         ret_s += "&";
 
 	return ret_s;
@@ -4617,7 +4962,7 @@ std::string displaySourceTreeExtendedOrFuncType(const SourceTreeNode* pRoot)
     return displaySourceTreeFuncType(pChild);
 }
 
-// *[?[const] '*' ?['__ptr64']] ?[const] ?['__restrict'] ?['('] ?[('&' | '*')] ?[scope &V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']'];
+// *['*' *[data_type_modifier]] ?['__restrict'] ?['('] *[('*' | '&' | '&&')] ?[scope &V token] ?[')'] ?[':' const_value] ?['[' ']'] *['[' expr ']'];
 std::string displaySourceTreeDeclVar(const SourceTreeNode* pRoot, const std::string& name, std::vector<std::string> str_v)
 {
 	std::string ret_s;
@@ -4636,17 +4981,15 @@ std::string displaySourceTreeDeclVar(const SourceTreeNode* pRoot, const std::str
 
 	for (pNode = pRoot->pChild; pNode; pNode = pNode->pNext)
 	{
-		if (pNode->pChild->param)
-			ret_s += " const";
 		ret_s += "*";
-		if (pNode->pChild->pNext->param)
-			ret_s += " __ptr64";
+		for (SourceTreeNode* pNode2 = pNode->pChild->pChild; pNode2; pNode2 = pNode2->pNext)
+			ret_s += dataTypeModifierGetBit(pNode2->pChild->pChild);
 	}
 	pRoot = pRoot->pNext;
 
-	if (pRoot->param)
+	/*if (pRoot->param)
 		ret_s += "" + displaySourceTreeConst(pRoot->pChild->pChild);
-	pRoot = pRoot->pNext;
+	pRoot = pRoot->pNext;*/
 
 	if (pRoot->param)
 		ret_s += " __restrict";
@@ -4962,8 +5305,8 @@ std::string displaySourceTreeExpr(const SourceTreeNode* pRoot)
     {
         TokenWithNamespace twn = scopeGetInfo(exprGetFirstNode(pRoot));
         twn.addScope("operator " + operatorGetString(exprGetSecondNode(pRoot)), false);
-        SourceTreeNode* pParamNode = exprGetOptionalThirdNode(pRoot);
-        ret_s += twn.toString() + "(" + (pParamNode ? displaySourceTreeExpr(pParamNode) : "") + ")";
+        SourceTreeNode* pParamNode = exprGetThirdNode(pRoot);
+        ret_s += twn.toString() + "(" + displaySourceTreeExpr2(pParamNode) + ")";
         break;
     }
 	case EXPR_TYPE_ARRAY:
@@ -5272,8 +5615,8 @@ std::string displaySourceTreeExpr(const SourceTreeNode* pRoot)
 	case EXPR_TYPE_BUILTIN_TYPE_FUNC:    // type
         ret_s += exprBuiltinFuncGetName(pRoot) + "(" + displaySourceTreeType(exprGetSecondNode(pRoot)) + ")";
         break;
-	case EXPR_TYPE_IS_BASE_OF:    // type
-        ret_s += "__is_base_of(" + displaySourceTreeType(exprGetFirstNode(pRoot)) + ", " + displaySourceTreeType(exprGetSecondNode(pRoot)) + ")";
+	case EXPR_TYPE_BUILTIN_TYPE_FUNC2:    // type
+        ret_s += exprBuiltinFunc2GetName(pRoot) + "(" + displaySourceTreeType(exprGetSecondNode(pRoot)) + ", " + displaySourceTreeType(exprGetThirdNode(pRoot)) + ")";
         break;
 	case EXPR_TYPE_CONST_CAST:      // extended_type, expr
         ret_s += "const_cast<" + displaySourceTreeExtendedOrFuncType(exprGetFirstNode(pRoot)) + ">";
@@ -5931,11 +6274,14 @@ int CGrammarCacheMapNode::find(CGrammarAnalyzer* pAnalyzer, int start, int end, 
 //===============================================CGrammarAnalyzer===============================================================
 
 const char* g_grammar_keywords[] = {
-	"const", "void", "extern", "__extension__", "__attribute__", "__restrict",
-	"void", "char", "short", "int", "bool", "long", "float", "unsigned", "signed", "struct", "union", "enum", "typedef", "sizeof",
-	"__builtin_va_list", "wchar_t", "__w64", "operator", "new", "delete",
-	"for", "if", "switch", "while", "do", "break", "flow", "flow_root", "flow_fork", "flow_try", "flow_catch",
-	"class", "public", "protected", "private", "virtual", "static", "mutable", "template", "namespace", "using", "typename", "friend"
+	"__asm", "__attribute__", "__builtin_va_list", "_cdecl", "__cdecl", "__complex__", "__const", "__declspec", "__extension__", 
+	"__fastcall", "__forceinline", "__inline", "__int8", "__int16", "__int32", "__int64", "__int128", 
+	"__nullptr", "__pragma", "__ptr64", "__restrict", "__stdcall", "__thiscall", "__typeof", "__typeof__", "__unaligned", "__w64", 
+	"bool", "break", "case", "catch", "char", "class", "const", "const_cast", "continue", "decltype", "default", "delete", "do", "double", "dynamic_cast", 
+	"enum", "else", "explicit", "extern", "float", "flow", "flow_root", "flow_fork", "flow_try", "flow_catch", "for", "friend",
+	"if", "inline", "int", "long", "mutable", "new", "namespace", "operator", "private", "protected", "public", 	
+	"reinterpret_cast", "return", "short", "signed", "sizeof", "static", "static_cast", "struct", "switch", 
+	"template", "typedef", "typename", "try", "unsigned", "union", "using", "virtual", "void", "volatile", "wchar_t", "while", 
 	//"default",
 };
 
@@ -6348,7 +6694,7 @@ std::string CGrammarAnalyzer::grammar_read_word(int& n, int end_n, bool bSkipCom
 		if (end_n >= 0 && n >= end_n)
 			return "";
 
-		if (n < m_gf.buffered_keywords.size())
+		if (n < (int)m_gf.buffered_keywords.size())
 		{
 			s = m_gf.buffered_keywords[n].keyword;
 			n++;
@@ -6357,7 +6703,7 @@ std::string CGrammarAnalyzer::grammar_read_word(int& n, int end_n, bool bSkipCom
 			break;
 		}
 
-		while (n >= m_gf.buffered_keywords.size())
+		while (n >= (int)m_gf.buffered_keywords.size())
 		{
 			StringVector include_files;
 			int line_no;
@@ -6418,6 +6764,7 @@ int CGrammarAnalyzer::findPairEnd(int n, int end_n)
     else if (start_s == "{")
         end_s = "}";
 
+	std::string last_word;
     int depth = 0;
     while (true)
     {
@@ -6425,16 +6772,20 @@ int CGrammarAnalyzer::findPairEnd(int n, int end_n)
         if (s.empty())
             break;
 
-        if (s == start_s)
+        if ((s == "<" || s == "(" || s == "[" || s == "{") && (s != "<" || CLexer::isIdentifier(last_word)))
             depth++;
 
-        if (s == end_s)
+		if (s == ">" || s == ")" || s == "]" || s == "}")
         {
             if (depth == 0)
-                return n - 1;
-
+			{
+				if (s == end_s)
+	                return n - 1;
+				return -1;
+			}
             depth--;
         }
+		last_word = s;
     }
 
     return -1;
@@ -6786,77 +7137,6 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
             continue;
         }
 
-		MY_ASSERT(name != "^E");
-        /*if (name == "^E")
-        {
-            pGrammar = pGrammar->next;
-            GrammarTreeNode* pGrammarP, *pGrammarTemp = NULL;
-            bool bFound = false;
-            for (pGrammarP = pGrammar; pGrammarP && (pGrammarEnd == NULL || pGrammarP != pGrammarEnd); pGrammarP = pGrammarP->next)
-            {
-                if (pGrammarP->name[0] == '\'')
-                {
-                    bFound = true;
-                    break;
-                }
-                pGrammarTemp = pGrammarP;
-            }
-            MY_ASSERT(bFound);
-            bool bDividerIsTheOne = pGrammarTemp && pGrammarTemp->name == "^O";
-            std::string s, s_p = pGrammarP->name.substr(1, pGrammarP->name.size() - 2);
-            MY_ASSERT(s_p != "(" && s_p != "[" && s_p != "{");
-            TRACE("found divider grammar '%s'\n", s_p.c_str());
-            int depth = 0, n_p = n;
-            bFound = false;
-            while (end_n < 0 || n_p < end_n)
-            {
-                s = grammar_read_word(n_p, end_n);
-                if (s.empty())
-                    break;
-                if (depth == 0 && s == s_p)
-                {
-                    bFound = true;
-                    break;
-                }
-                if (s == "(" || s == "[" || s == "{")
-                    depth++;
-                else if (s == ")" || s == "]" || s == "}")
-                {
-                    if (depth == 0)
-                        break;
-                    depth--;
-                }
-            }
-            if (!bFound)
-            {
-                set_error(n, "expecting '" + s_p + "' but not found");
-                TRACE("%s, not found '%s' in string, from %d, end_n=%d\n", __FUNCTION__, s_p.c_str(), n, end_n);
-                n = -1;
-                break;
-            }
-            n_p--;
-            TRACE("%s, found '%s' at %d\n", __FUNCTION__, s_p.c_str(), n_p);
-            n = AnalyzeGrammar(analyze_path, pGrammar, pGrammarP, n, n_p, true, tempDefMap, pBlockRoot, pSourceParent, flags);
-            TRACE("%s, the first part returns %d\n", __FUNCTION__, n);
-            if (n >= 0 && n != n_p)
-            {
-                TRACE("%s, First phase reaches to %d, but expecting to reach %d\n", __FUNCTION__, n, n_p);
-                n = -1;
-            }
-            if (n < 0)
-                break;
-            if (bDividerIsTheOne)
-                flags |= ANALYZE_FLAG_BIT_THE_ONE;
-            n = AnalyzeGrammar(analyze_path, pGrammarP->next, pGrammarEnd, n_p + 1, end_n, bNoMoreGrammar, tempDefMap, pBlockRoot, pSourceParent, flags);
-            TRACE("%s, Second phase returns %d\n", __FUNCTION__, n);
-            if (n >= 0 && bNoMoreGrammar && end_n >= 0 && n != end_n)
-            {
-                TRACE("%s, last half returned %d while bNoMoreGrammar=true and end_n=%d\n", __FUNCTION__, n, end_n);
-                n = -1;
-            }
-            break;
-        }*/
-
         //std::string func_s;
 		MY_ASSERT(n >= 0);
 		std::string s = grammar_read_word(n, end_n);
@@ -6870,7 +7150,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 		}
 		if (name == "const_value")
 		{
-			if (s.empty() || (!CLexer::isNumber(s) && s[0] != '\'' && s[0] != '"'))
+			if (s.empty() || (!CLexer::isNumber(s) && s[0] != '\'' && !CLexer::isString(s)))
 			{
 				set_error(s.empty() ? n : n + 1, "expecting a const_value but found " + s);
 				n = -1;
@@ -6881,12 +7161,12 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 			pSourceNode->param = SOURCE_NODE_TYPE_CONST_VALUE;
 			pSourceNode->value = s;
 			n++;
-			while (s[0] == '"')
+			while (CLexer::isString(s))
 			{
 				s = grammar_read_word(n, end_n);
 				if (s.empty())
 					break;
-				if (s[0] != '"')
+				if (!CLexer::isString(s))
 				{
 					n--;
 					break;
@@ -6914,7 +7194,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 
 			if (pGrammar->attrib & GRAMMAR_ATTRIB_IS_TEMP_TYPE)
 			{
-				MY_ASSERT(tempDefMap.find(s) == tempDefMap.end());
+				MY_ASSERT(tempDefMap.find(s) == tempDefMap.end() || tempDefMap[s] == 1);
 				tempDefMap[s] = 1;
 				TRACE2("***add temp type %s\n", s.c_str());
 			}
@@ -7083,7 +7363,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 					break;
 				}
 
-				TRACE2("cache found! n=%d, flags=%d\n", n, flags);
+				TRACE2("cache %s found! n=%d, flags=%d\n", pattern.c_str(), n, flags);
 				appendToChildTail(pSourceParent, dupSourceTreeNode(pattern_it->second.pSourceNode));
 				flags = pattern_it->second.flags;
 				tempDefMap = pattern_it->second.tempDefMap;
@@ -7094,30 +7374,6 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 			GrammarMap::iterator it = s_grammar_map.find(name);
 			MY_ASSERT(it != s_grammar_map.end());
 
-			/*if (name == "start" || name == "statement" || name == "defs" || name == "def_var_tail")
-			{
-				int n2 = findEndOfStatement(n, end_n);
-				if (n2 < 0)
-				{
-					set_error(n, "cannot find end of statement");
-					TRACE("cannot find end of statement for grammar %s\n", name.c_str());
-					n = -1;
-					if (g_grammar_log)
-						analyze_path.pop_back();
-					break;
-				}
-				if (bNoMoreGrammar && n2 != end_n)
-				{
-					set_error(n2, "found a statement but expect to reach end_n");
-					TRACE("found a statement at %d but expect to reach end_n:%d\n", n2, end_n);
-					n = -1;
-					if (g_grammar_log)
-						analyze_path.pop_back();
-					break;
-				}
-				end_n = n2;
-				bNoMoreGrammar = true;
-			}*/
 			pSourceNode = createEmptyNode();
 			pSourceNode->param = SOURCE_NODE_TYPE_IDENTIFIER;
 			appendToChildTail(pSourceParent, pSourceNode);
@@ -7147,9 +7403,9 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 					MY_ASSERT(pSourceNode->pChild);
 					if (name == "token_with_namespace")
 					{
-						if (!g_grammarCheckFunc(m_context, 0, pSourceNode->pChild, tempDefMap2))
+						if (g_grammarCheckFunc(m_context, tokenWithNamespaceGetInfo(pSourceNode->pChild), tempDefMap2) == 1)
 						{
-							TRACE2("Check token_with_namespace '%s', not a token\n", displaySourceTreeTokenWithNamespace(pSourceNode->pChild).c_str());
+							TRACE2("Check token_with_namespace '%s', it's a type\n", displaySourceTreeTokenWithNamespace(pSourceNode->pChild).c_str());
 							set_error(n, displaySourceTreeTokenWithNamespace(pSourceNode->pChild) + " is not a token");
 							n = -1;
 						}
@@ -7157,9 +7413,9 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 					}
 					else if (name == "user_def_type" && (flags & ANALYZE_FLAG_BIT_NO_TYPE_CHECK) == 0)
 					{
-						if (!g_grammarCheckFunc(m_context, 1, pSourceNode->pChild, tempDefMap2))
+						if (g_grammarCheckFunc(m_context, userDefTypeGetInfo(pSourceNode->pChild), tempDefMap2) == 0)
 						{
-							TRACE2("Check user_def_type '%s', not a type\n", displaySourceTreeUserDefType(pSourceNode->pChild).c_str());
+							TRACE2("Check user_def_type '%s', it's a var\n", displaySourceTreeUserDefType(pSourceNode->pChild).c_str());
 							set_error(n, displaySourceTreeUserDefType(pSourceNode->pChild) + " is not a user defined type");
 							n = -1;
 						}
@@ -7213,8 +7469,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 			}
 
 			TRACE("***matched '<'\n");
-			n++;
-
+			/*n++;
 			int n2 = n;
 			int depth = 0;
 			while (true)
@@ -7245,7 +7500,16 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 				}
 			}
 			if (n < 0)
+			    break;*/
+			int n2 = findPairEnd(n++, end_n);
+			if (n2 < 0)
+			{
+				set_error(n, "find unmatched parenthesis " + s);
+				TRACE2("find unmatched parenthesis %s", s.c_str());
+				n = -1;
 			    break;
+			}
+			n2++;
             TRACE2("found > at %d\n", n2 - 1);
             // setting of typename doesn't mean the type params inside should also skip type checking. otherwise, an expr will be treated as a type
             int flags2 = flags & ~ANALYZE_FLAG_BIT_NO_TYPE_CHECK;
@@ -7334,25 +7598,38 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 		{
 			MY_ASSERT((flags & ANALYZE_FLAG_BIT_REVERSE_ANALYZE) == 0);
 
+			start_n = n;
 			std::string end_kw = pGrammar->param.substr(1, pGrammar->param.size() - 2);
-			int start_n = n, depth = 0;
-			while (true)
+			if (end_kw == "};")
 			{
-				s = grammar_read_word(n, end_n);
-				if (s.empty())
+				n = findEndOfStatement(n, end_n);
+				if (n < 0)
 				{
-					TRACE2("cannot find '%s' after %d\n", end_kw.c_str(), start_n);
+					TRACE2("cannot find '%s' between %d~%d\n", end_kw.c_str(), start_n, end_n);
 					return -1;
 				}
-				if (depth == 0 && s == end_kw)
-					break;
-
-				if (s == "(" || s == "[" || s == "{")
-					depth++;
-				else if (s == ")" || s == "]" || s == "}")
+			}
+			else
+			{
+				int start_n = n, depth = 0;
+				while (true)
 				{
-					MY_ASSERT(depth > 0);
-					depth--;
+					s = grammar_read_word(n, end_n);
+					if (s.empty())
+					{
+						TRACE2("cannot find '%s' after %d\n", end_kw.c_str(), start_n);
+						return -1;
+					}
+					if (depth == 0 && s == end_kw)
+						break;
+
+					if (s == "(" || s == "[" || s == "{")
+						depth++;
+					else if (s == ")" || s == "]" || s == "}")
+					{
+						MY_ASSERT(depth > 0);
+						depth--;
+					}
 				}
 			}
 			TRACE2("found '%s' at %d\n", end_kw.c_str(), n);
@@ -7369,8 +7646,12 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 			pSourceNode = createEmptyNode();
 			appendToChildTail(pSourceParent, pSourceNode);
 
+            if (g_grammar_log)
+				analyze_path.pop_back();
 			if (pGrammar->param != "(")
 			{
+	            if (g_grammar_log)
+					analyze_path.push_back("?[1");
 				int j = AnalyzeGrammar2(analyze_path, pGrammar->children, NULL, n, end_n, (pGrammar->next == pGrammarEnd) && bNoMoreGrammar, tempDefMap, pBlockRoot, pSourceNode, flags);
                 if (g_grammar_log)
                 {
@@ -7412,7 +7693,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
                     printAnalyzePath(analyze_path); TRACE2(", ?[] not pass, check next, n=%d, err_n=%d\n", n, m_err_n);
                 }
 			}
-			else
+			else // '?('
 			{
 				MY_ASSERT((flags & ANALYZE_FLAG_BIT_REVERSE_ANALYZE) == 0);
 				bool bMatchFound = false;
@@ -7422,12 +7703,14 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 			        if (n2 > 0)
 					{
 						TRACE2("?(, Found ')' at %d\n", n2);
+						if (g_grammar_log)
+							analyze_path.push_back("?(1");
 						int n3 = AnalyzeGrammar(analyze_path, pGrammar->children, NULL, n + 1, n2, true, tempDefMap, pBlockRoot, pSourceNode, flags);
 						if (n3 == n2)
 						{
 							pSourceNode->param = 1;
 							n = n2 + 1;
-							TRACE2("The ?() with () returns %d\n", n);
+							TRACE2("?(%d~%d), returns %d successfully\n", n, n2, n2);
 							bMatchFound = true;
 						}
 						else
@@ -7435,8 +7718,10 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 							deleteSourceTreeNode(pSourceNode->pChild);
 							deleteSourceTreeNode(pSourceNode->pNext);
 							pSourceNode->pChild = pSourceNode->pNext = NULL;
-							TRACE2("The () inside analysis returns %d while ')' locates at %d, failed\n", n3, n2);
+							TRACE2("?(%d~%d), analyze failed\n", n, n2);
 						}
+						if (g_grammar_log)
+							analyze_path.pop_back();
 					}
 					else
 			        {
@@ -7446,6 +7731,8 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 
 				if (!bMatchFound)
 				{
+					if (g_grammar_log)
+						analyze_path.push_back("?(0");
 					n = AnalyzeGrammar(analyze_path, pGrammar->children, NULL, n, end_n, (pGrammar->next == pGrammarEnd) && bNoMoreGrammar, tempDefMap, pBlockRoot, pSourceNode, flags);
 					if (g_grammar_log)
 					{
@@ -7481,9 +7768,13 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 				}
 				MY_ASSERT(delimiter.size() == 1);
 			}
+			bool bSplitSucceed = false;
+			int orig_n = n;
 			if (!delimiter.empty() && !bNoSplit && bNoMoreGrammar && pGrammar->next == pGrammarEnd)
 			{
+				bSplitSucceed = true;
 				MY_ASSERT(end_n >= 0);
+				std::string last_word;
 				while (n < end_n)
 				{
 					int n2 = n, nDepth = 0;
@@ -7502,13 +7793,18 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 							TRACE2("found delimiter at %d\n", n2);
 							break;
 						}
-						if (s == "(" || s == "[" || s == "{" || s == "<" && bIncludeLTGT)
+						if (s == "(" || s == "[" || s == "{" || s == "<" && bIncludeLTGT && CLexer::isIdentifier(last_word))
 							nDepth++;
 						else if (s == ")" || s == "]" || s == "}" || s == ">" && bIncludeLTGT)
 						{
-							MY_ASSERT(nDepth > 0);
+							if (nDepth == 0)
+							{
+								TRACE2("found %s at %d without the left peer, something is wrong, abort the loop\n", s.c_str(), n2 - 1);
+								return -1;
+							}
 							nDepth--;
 						}
+						last_word = s;
 					}
 					if (g_grammar_log)
 						analyze_path.push_back(name + ltoa(pSourceNode->param));
@@ -7533,14 +7829,23 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 					}
 					if (j < 0)
 					{
-						deleteChildTail(pSourceNode, pLastGoodTail);
-						return -1;
+						deleteSourceTreeNode(pSourceNode->pNext);
+						deleteSourceTreeNode(pSourceNode->pChild);
+						pSourceNode->pNext = pSourceNode->pChild = NULL;
+						pSourceNode->param = 0;
+						bSplitSucceed = false;
+						n = orig_n;
+						TRACE("split failed, switch to non-split\n");
+						break;
 					}
 					n = n2 + 1;
 				}
-				n = end_n;
+				if (bSplitSucceed)
+				{
+					n = end_n;
+				}
 			}
-			else
+			if (!bSplitSucceed)
 			{
 				while (true)
 				{
@@ -7588,7 +7893,7 @@ int CGrammarAnalyzer::AnalyzeGrammar(std::vector<std::string> analyze_path, Gram
 				MY_ASSERT(pSourceNode->pChild->param == 0);
 			if (name == "+" && pSourceNode->param == 0)
 			{
-				TRACE("+[] is specified, but 0 match is found");
+				TRACE("+[] is specified, but 0 match is found\n");
 				set_error(n, "+[] is specified, but 0 match is found");
 				n = -1;
 				break;
@@ -7743,7 +8048,7 @@ bool CGrammarAnalyzer::postIdentifierHandling(const std::string& grammarName, So
 		std::string bitsValue = declVarGetBitsValue(pRoot);
 		//if (name.empty() && !bitsValue.empty())
 		//	return false;
-		if (twn.empty() && !declVarIsReference(pRoot) && !declVarHasInternalPointer(pRoot) && declVarHasParenthesis(pRoot))
+		if (twn.empty() && !declVarGetReferenceCount(pRoot) && !declVarHasInternalPointer(pRoot) && declVarHasParenthesis(pRoot))
 			return false;
 	}
 	else if (grammarName == "token_with_namespace")
@@ -7873,7 +8178,7 @@ SourceTreeNode* CGrammarAnalyzer::getBlock(StringVector* pBlockData /* = NULL*/,
             int sz = m_gf.buffered_keywords.size();
             std::string file_name = m_gf.buffered_keywords[0].include_files.back();
             int line_no = m_gf.buffered_keywords[0].line_no;
-            for (n = (m_err_n >= 30 ? m_err_n - 30 : 0); n < m_err_n + 30 && n < m_gf.buffered_keywords.size(); n++)
+            for (n = (m_err_n >= 30 ? m_err_n - 30 : 0); n < m_err_n + 30 && n < (int)m_gf.buffered_keywords.size(); n++)
             {
                 if (n == m_err_n)
                     err_string += " ^ ";

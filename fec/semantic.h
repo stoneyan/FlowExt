@@ -100,12 +100,13 @@ enum FindSymbolMode
 {
     FIND_SYMBOL_MODE_ANY,
     FIND_SYMBOL_MODE_TEMPLATE, // search for template only
+    FIND_SYMBOL_MODE_FUNC,
 };
 
 class CGrammarObject
 {
 public:
-    CGrammarObject(CScope* pParent) { m_pParent = pParent; m_line_no = 0; }
+    CGrammarObject(CScope* pParent) { m_pParent = pParent; m_line_no = 0; m_bHasTypename = false; }
     virtual ~CGrammarObject() {}
 
     virtual GrammarObjectType getGoType() = 0;
@@ -133,11 +134,15 @@ public:
     CTemplate* getParentTemplate();
     bool isParentOf(CGrammarObject* pGO);
 
+	bool hasTypename() { return m_bHasTypename; } // the type has typename inside, is not a real type
+	void setHasTypename(bool b = true);
+
 protected:
     CScope*         m_pParent;
     std::string     m_name;
     StringVector    m_file_stack;
     int             m_line_no;
+	bool			m_bHasTypename;
 };
 
 class CTypeDef : /*public boost::enable_shared_from_this<CTypeDef>, */public CGrammarObject
@@ -147,6 +152,8 @@ public:
 	CTypeDef(CScope* pScope, const std::string& name, const StandardType& basic_tokens);
 	// enum or union or struct or class
 	CTypeDef(CScope* pScope, const std::string& name, CClassDef* pClassDef);
+	// template
+	CTypeDef(CScope* pScope, const std::string& name, CTemplate* pTemplate);
 	// func or func ptr, depth is 0 means a func declare, otherwise it's a func ptr. pReturnType might be empty pointer for constructor or destructor
 	CTypeDef(CScope* pScope, const std::string& name, SemanticDataType type, TypeDefPointer pReturnType, int depth);
 	// data member ptr
@@ -154,9 +161,9 @@ public:
     // template
     CTypeDef(CTemplate* pTemplate);
 	// template typename
-    CTypeDef(CScope* pScope, const std::string& name);
+    CTypeDef(CScope* pScope, const std::string& name, SemanticDataType type);
     // typeof
-    CTypeDef(CScope* pScope, const std::string& name, const TokenWithNamespace& twn);
+    CTypeDef(CScope* pScope, const std::string& name, CExpr* pExpr);
 	// user def one
 	// there's one case that when a struct/class is defined, if want to reference it, we can create a CTypeDef with name set to the name,
 	//   pBaseTypeDef set to the real type, pDeclVar set to NULL. We can use isBaseType() to distinguish the two.
@@ -176,21 +183,29 @@ public:
 	bool isBaseType() { return !m_pBaseTypeDef; }
 	TypeDefPointer sharedFromThis() { return m_shared_from_this; }
 	TypeDefPointer getBaseType() { return m_pBaseTypeDef ? m_pBaseTypeDef : m_shared_from_this; }
+    CScope* getBaseScope() { return m_pSpecialType; }
     CClassDef* getClassDef() { return (CClassDef*)m_pSpecialType; }
     CTemplate* getTemplate() { return (CTemplate*)m_pSpecialType; }
 	int getDepth() { return m_depth; }
     int getFullDepth();
-	bool isReference() { return m_bReference; }
-	void setReference(bool b) { m_bReference = b; }
+	bool isReference() { return m_nReference > 0; }
+	int getReferenceCount() { return m_nReference; }
+	void setReference(int n) { m_nReference = n; }
 	bool isConst();
 	void setConst(bool bConst = true);
     bool isVolatile();
     bool isVirtual();
 	std::string getDisplayStr() { return m_display_str; }
+	TypeDefPointer getRootBaseType() { if (!m_pBaseTypeDef) return m_shared_from_this; return m_pBaseTypeDef->getRootBaseType(); }
+	int getRootDepth() { return m_depth + (m_pBaseTypeDef ? m_pBaseTypeDef->getRootDepth() : 0); }
 
 	bool isVoid();
-	bool isZero() { return m_bZero; }
-	void setZero() { m_bZero = true; }
+	bool isNumType(); // char or int or wchar_t or float...
+	bool isZero() { return m_bHasValue && m_numValue == 0; }
+	void setZero() { m_bHasValue = true; m_numValue = 0; }
+	bool hasNumValue() { return m_bHasValue; }
+	int getNumValue() { MY_ASSERT(m_bHasValue); return m_numValue; }
+	void setHasNumValue(int v) { m_bHasValue = true; m_numValue = v; }
 
 	void setPrefix(const std::string& prefix) { m_prefix = prefix; }
 	std::string getPrefix() { return m_prefix; }
@@ -222,7 +237,7 @@ public:
 	const StringVector& getModStrings() { return m_mod_strings; }
 	const StringVector& getBasicTokens() { MY_ASSERT(getType() == SEMANTIC_TYPE_BASIC); return m_basic_tokens; }
 
-	virtual std::string toString(int depth = 0);
+	virtual std::string toString(int depth = 0, bool bDoxygen = false);
 	std::string toFuncString(const std::string& name);
 	std::string toBaseTypeString(int depth = 0);
 	std::string toFullString();
@@ -233,14 +248,19 @@ public:
 
     bool is_abstract();
     bool is_class();
+	bool is_union();
 	bool is_empty();
     bool is_enum();
 	bool is_pod();
+	bool is_polymorphic();
     bool has_nothrow_assign();
+    bool has_nothrow_constructor();
     bool has_nothrow_copy();
     bool has_trivial_assign();
     bool has_trivial_copy();
+	bool has_trivial_constructor();
 	bool has_trivial_destructor();
+	bool has_virtual_destructor();
 
 protected:
 	void init();
@@ -259,15 +279,16 @@ protected:
 	StringVector	m_mod4_strings;
 	bool			m_display_flag; // for func type, true means a parenthesis around mod3_strings and name
 	std::string		m_prefix;
-	bool            m_bZero; // only valid when it's basic type int
+	bool            m_bHasValue; // only valid when it's basic type int
+	int             m_numValue; // only valid when it's basic type int
 
 	int 			m_depth; // relative to m_pBaseTypeDef
-	bool 			m_bReference;
+	int 			m_nReference;
 	std::string		m_display_str;
 
 	//SourceTreeNode*	m_pDeclVarNode;
 
-	TokenWithNamespace  m_typeof_twn;
+	CExpr*			m_typeof_expr_node;
 
 	// for base func declare only
 	TypeDefPointer	m_pFuncReturnType;
@@ -329,7 +350,7 @@ public:
 
 	bool isFlow();
 
-	bool isReference() { return m_pDeclVar ? declVarIsReference(m_pDeclVar) : false; }
+	bool isReference() { return m_pDeclVar ? declVarGetReferenceCount(m_pDeclVar) != 0 : false; }
 	void setReference(bool b = true) {
 		if (b)
 		{
@@ -442,6 +463,8 @@ struct SymbolDefObject {
 			CGrammarObject* pObj = children[i];
 			if (pObj->getGoType() == t)
 				return pObj;
+			if (pObj->getGoType() == GO_TYPE_USING_OBJECTS && ((CUsingObject*)pObj)->getSymbolObj()->type == t)
+				return pObj;
 		}
 		return NULL;
 	}
@@ -473,7 +496,10 @@ struct SymbolDefObject {
     {
         MY_ASSERT(type == GO_TYPE_FUNC_DECL);
         MY_ASSERT(i >= 0 && i < children.size());
-        return (CFuncDeclare*)children[i];
+        CGrammarObject* pObj = children[i];
+        if (pObj->getGoType() != GO_TYPE_USING_OBJECTS)
+	        return (CFuncDeclare*)pObj;
+        return ((CUsingObject*)pObj)->getSymbolObj()->getFuncDeclareAt(0);
     }
     CVarDef* getVarDef()
     {
@@ -540,22 +566,8 @@ typedef std::vector<ClassBaseTypeDef> ClassBaseTypeDefVector;
 class CScope : public CGrammarObject
 {
 public:
-    CScope(CScope* pParent) : CGrammarObject(pParent)
-	{
-		//m_pParent = pParent;
-		m_bRealScope = true;
-		m_bTransformed = false;
-	}
-	virtual ~CScope()
-	{
-		//printf("destruction %lx\n", this);
-		for (size_t i = 0; i < m_children.size(); i++)
-		{
-			CScope* pObj = m_children[i];
-			//printf("deleting %lx, {%s}\n", pObj, pObj->toString(2).c_str());
-			delete pObj;
-		}
-	}
+    CScope(CScope* pParent, const std::string& name = "");
+	virtual ~CScope();
 
     CFunction* getFunctionScope();
 	bool isRealScope() { return m_bRealScope; }
@@ -563,9 +575,14 @@ public:
 	void setRealScope(bool bRealScope) { m_bRealScope = bRealScope; }
 	virtual std::string toString(int depth = 0) = 0;
 
+	void createDoxygenFile();
+	FILE* openDoxygenFile();
+	const std::string& getDoxygenFName() { return m_doxygen_fname; }
+	std::string getDoxygenLink(const std::string& name) { return std::string("<a href=") + m_doxygen_fname + "><b>" + name + "</b></a>"; }
+
 	bool isTransformed() { return m_bTransformed; }
 	void setTransformed() { if (getParent() == NULL) return; m_bTransformed = true; if (getParent()) getParent()->setTransformed(); }
-	int getChildrenCount() { return (int)m_children.size(); }
+	unsigned getChildrenCount() { return m_children.size(); }
 	CScope* getChildAt(int idx) { return m_children[idx]; }
 	void addChild(CScope* pObj)
 	{
@@ -621,9 +638,10 @@ public:
 	//std::vector<NamespaceTokenPair> getUsingNamespaceList() { return m_using_namespace_list; }
 	// bCheckingParents is only valid when twn doesn't have scope defined.
 	SymbolDefObject* findSymbolEx(const TokenWithNamespace& twn, bool bCheckingParents = true, bool bCreateIfNotExists = false, bool bCreateAsType = false);
+	CGrammarObject* findRoughSymbol(const TokenWithNamespace& twn);
 	CScope* getScope(const TokenWithNamespace& twn);
 
-	bool onGrammarCheckFunc(int mode, const SourceTreeNode* pRoot, const GrammarTempDefMap& tempDefMap);
+	int onGrammarCheckFunc(const TokenWithNamespace& twn, const GrammarTempDefMap& tempDefMap);
     bool onGrammarCallback(int mode, std::string& s);
 
 	//std::string typeDescBlock2String(const TypeDescBlock& block);
@@ -646,10 +664,24 @@ public:
 
 	void addFuncParamsToFuncType(TypeDefPointer pTypeDef, const SourceTreeNode* pFuncParamsNode);
 	bool checkTemplateParamHasTypename(const TokenWithNamespace& twn, int idx);
+	bool checkExprNodeHasTypename(const SourceTreeNode* pRoot);
+	bool checkScopeNodeHasTypename(const SourceTreeNode* pRoot);
+	bool checkExpr2NodeHasTypename(const SourceTreeNode* pRoot);
+	bool checkTypeNodeHasTypename(const SourceTreeNode* pRoot);
+	bool checkExtendedTypeNodeHasTypename(const SourceTreeNode* pRoot);
+	bool checkExtendedTypeVarNodeHasTypename(const SourceTreeNode* pRoot);
+	bool checkFuncTypeNodeHasTypename(const SourceTreeNode* pRoot);
+	bool checkUserDefTypeNodeHasTypename(const SourceTreeNode* pRoot);
+	bool checkExtendedOrFuncTypeNodeHasTypename(const SourceTreeNode* pRoot);
+	bool checkTokenWithNamespaceHasTypename(const TokenWithNamespace& twn);
 
 public:
 	bool					m_bRealScope; // extern "C", CExpr, defs with no big brackets, non compound statements should set to false
 	bool					m_bTransformed;
+	FILE*					m_doxygen_fp;
+	std::string				m_doxygen_fname;
+	CScope*					m_doxygen_open_next; // for not open too many files
+	CScope*					m_doxygen_open_prev;
 	//CScope*				m_pParent;
 	std::vector<CScope*>	m_children;
 	SymbolDefMap 			m_symbol_map;
@@ -799,11 +831,15 @@ public:
     bool is_abstract();
     bool is_empty(); // don't have constructor or destructor, don't have protected, private or vitural method
     bool is_pod();
+	bool is_polymorphic();
     bool has_nothrow_assign();
+    bool has_nothrow_constructor();
     bool has_nothrow_copy();
     bool has_trivial_assign();
     bool has_trivial_copy();
+    bool has_trivial_constructor();
     bool has_trivial_destructor();
+    bool has_virtual_destructor();
 
     bool analyzeByTemplate();
 
@@ -873,12 +909,12 @@ public:
     };
     typedef std::vector<TypeParam> TypeParamVector;
 
-    CTemplate(CScope* pParent, TemplateType type, const std::string& name);
+    CTemplate(CScope* pParent, TemplateType type, const std::string& name, const std::string& template_name = "");
     virtual ~CTemplate();
 
     virtual std::string getDebugName();
     virtual GrammarObjectType getGoType() { return GO_TYPE_TEMPLATE; }
-    std::string toHeaderString(int depth);
+    std::string toHeaderString(int depth, bool bDoxygen = false);
     virtual std::string toString(int depth = 0) { MY_ASSERT(false); return ""; }
     virtual std::string toString(bool bDefine, int depth = 0);
     bool isDefined() { return m_bDefined; }
@@ -887,10 +923,14 @@ public:
     std::string getTemplateName() { return m_template_name; }
     bool isSame(const CTemplate* pTemplate) const;
     SemanticDataType getClassType() { return m_data_type; } // struct or class
+	int getMatchedScore() { MY_ASSERT(isInstancedTemplate()); return m_matched_score; }
+	void setMatchedScore(int score) { MY_ASSERT(isInstancedTemplate()); m_matched_score = score; }
+	void writeDoxygenHeader();
 
     bool isRootTemplate() { return m_name == m_template_name && m_specializedTypeParams.empty(); }
     bool isSpecializedTemplate() { MY_ASSERT(getTemplateType() == TEMPLATE_TYPE_CLASS); return m_name == m_template_name && !m_specializedTypeParams.empty(); }
     bool isInstancedTemplate() { return m_name != m_template_name; }
+	const std::string getTemplateRoleString() { return isRootTemplate() ? "Root" : (isSpecializedTemplate() ? "Specialized" : (isInstancedTemplate() ? "Instanced" : "Unkonwn")); }
 
     virtual SymbolDefObject* findSymbol(const std::string& name, FindSymbolScope scope, FindSymbolMode mode = FIND_SYMBOL_MODE_ANY);
     SymbolDefObject* findSymbolInBaseClasses(const std::string& name);
@@ -910,8 +950,10 @@ public:
     void mergeWithSpecializedClass(CTemplate* pNewTemplate, bool bReplaceName);
 
     int funcGetParamCount() { return (int)m_funcParams.size(); }
-    int funcCheckFitForTypeList(const TypeDefVector& typeList, TemplateResolvedDefParamVector& resovledDefParams);
+    int funcRootCheckFitForTypeList(const TypeDefVector& typeList, TemplateResolvedDefParamVector& resovledDefParams);
+    int funcInstancedCheckFitForTypeList(const TypeDefVector& typeList, TemplateResolvedDefParamVector& resovledDefParams);
     TypeDefPointer funcGetInstance(const TypeDefVector& typeList, const TemplateResolvedDefParamVector& resovledDefParams);
+	CTemplate* funcRootInstanceByTypeParams(const TypeDefVector& typeList);
 
     TypeDefPointer classGetInstance(const TokenWithNamespace& twn, int idx, CScope* pOtherScope);
     CTemplate* getTemplateByParams(const TokenWithNamespace& twn, int depth);
@@ -927,6 +969,7 @@ public:
     CTemplate* findSpecializedTemplateByUniqueId(const std::string& uniqueId);
 
     void setResolvedDefParams(const TemplateResolvedDefParamVector& v);
+	TemplateResolvedDefParamVector prepareResolvedDefParams();
     int getScore() { return m_score; }
     void setScore(int score) { m_score = score; }
 
@@ -945,6 +988,7 @@ public:
 protected:
 	friend class CClassDef;
 	friend class CStatement;
+	friend class CScope;
 
 	void createParamTypeFromTemplateHeader(const SourceTreeNode* pRoot);
 	void readTemplateHeaderIntoTypeParams(const std::vector<void*>& header_types);
@@ -958,7 +1002,7 @@ protected:
     CTemplate* classResolveParamForBaseTemplate(const TemplateResolvedDefParamVector& realTypeList);
     int classResolveParamForSpecializedTemplate(const TemplateResolvedDefParamVector& realTypeList, CTemplate*& pRetTemplate);
     CTemplate* classMatchForATemplate_(const TemplateResolvedDefParamVector& realTypeList);
-    TypeDefPointer classGetInstance_(const TemplateResolvedDefParamVector& resolvedDefParams);
+    TypeDefPointer classGetInstance_();
 
     bool inParamTypeNames(const std::string s);
 
@@ -970,9 +1014,13 @@ protected:
     SemanticDataType		m_data_type; // for class template, is it a struct or a class
     std::string             m_template_name;
     std::vector<TypeParam>  m_typeParams;
-    std::vector<TypeParam>  m_specializedTypeParams; // for specialized template only, in this list, all type and num values are stored in pDefaultExtendedTypeNode
-	int						m_specializedTypeParamCount;
+    std::vector<TypeParam>  m_specializedTypeParams; // for specialized template, in this list, all type and num values are stored in pDefaultExtendedTypeNode
+	unsigned				m_specializedTypeParamCount;
     std::string				m_uniqueId;
+	// for root template, store matched type_str and instanced templates. NULL template pointer means unmatched
+	// for func template, the key is func param list
+	std::map<std::string, CTemplate*>	m_matched_typestr_map; 
+	int						m_matched_score; // for instanced template
 
     SourceTreeNode*         m_pFuncReturnExtendedTypeNode; // for func and var
     std::vector<FuncParamItem>  m_funcParams;
@@ -989,12 +1037,13 @@ protected:
     std::vector<SymbolDefObject>	m_specializeDefList; // special list of root template
 
     TemplateResolvedDefParamVector m_resolvedDefParams; // for instanced template only, which type is a type param defined to, e.g. T=int*
-    TemplateResolvedDefParamVector m_resolvedTypeParams; // for instanced template only, list of real types and values e.g. <int*, string>
+    //TemplateResolvedDefParamVector m_resolvedTypeParams; // for instanced template only, list of real types and values e.g. <int*, string>
     TokenWithNamespace             m_varName; // for VAR and friend class only
     CSUType                 m_csu_type; // for friend_class only
     int                     m_score; // for specialized template only
 
     SymbolDefObject         m_instanced_class; // for root class template only.
+	TypeDefPointer			m_instanced_func_type; // for instanced func template only. store func declare type
 	StringVector			m_func_base_init_sv;
     StringVector            m_body_sv;
 	std::vector<SourceTreeNode*>	m_var_array_node_list;
@@ -1104,7 +1153,7 @@ public:
 	ClassAccessModifierType m_cam_type;
 
 	// number of elseif, number of statements of all cases
-	std::vector<int>	m_int_vector;
+	std::vector<unsigned>	m_int_vector;
 	// if/exprif/else: whether have else; switch: whether have default
     std::vector<FuncParamItem>    m_func_param_vector; // for try catch only
 	bool		        m_bFlag;
@@ -1187,7 +1236,6 @@ public:
 
 protected:
 	bool		m_bNamespace;
-	std::string m_name;
 	int         m_depth;
 	int	        m_extern_modifier;
 	StringVector	m_mod_strings;
@@ -1210,6 +1258,7 @@ std::string getGoTypeName(GrammarObjectType t);
 void extendedTypeReplaceTypeNameIfAny(SourceTreeNode* pRoot, const std::map<std::string, std::string>& dict);
 TokenWithNamespace getRelativeTWN(CScope* pTarget, const std::string& name = "");
 std::string getRelativePath(CScope* pTarget, const std::string& name = "");
+std::string typeListToFullString(const TypeDefVector& typeList);
 int comparableWith(TypeDefPointer pFirstTypeDef, TypeDefPointer pSecondTypeDef);
 TypeDefPointer createTypeByDepth(TypeDefPointer pTypeDef, int depth);
 void checkBestMatchedFunc(const std::vector<CGrammarObject*>& list, const std::vector<TypeDefPointer>& param_v, bool bCallerIsConst, int& minUnmatchCount, std::vector<CGrammarObject*>& matched_v);
